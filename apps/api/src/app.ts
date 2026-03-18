@@ -8,6 +8,7 @@ import eventRoutes from "./modules/events/event.routes";
 import orderRoutes from "./modules/orders/order.routes";
 import paymentRoutes from "./modules/payments/payment.routes";
 import seatMapRoutes from "./modules/seatmaps/seatmap.routes";
+import ticketRoutes from "./modules/tickets/ticket.routes";
 import venueRoutes from "./modules/venues/venue.routes";
 import { errorHandler } from "./middlewares/error-handler.middleware";
 
@@ -29,6 +30,7 @@ app.use(express.json());
 app.use("/auth", authRoutes);
 app.use("/checkout", checkoutRoutes);
 app.use("/orders", orderRoutes);
+app.use("/tickets", ticketRoutes);
 app.use("/venues", venueRoutes);
 app.use("/events", eventRoutes);
 app.use("/", seatMapRoutes);

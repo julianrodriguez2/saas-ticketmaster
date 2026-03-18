@@ -4,11 +4,13 @@ export type CreateCheckoutSessionInput =
   | {
       eventId: string;
       seatIds: string[];
+      email?: string;
     }
   | {
       eventId: string;
       ticketTierId: string;
       quantity: number;
+      email?: string;
     };
 
 export type CheckoutSession = {
@@ -18,7 +20,19 @@ export type CheckoutSession = {
   currency: "usd";
 };
 
-export type OrderSummary = {
+export type OrderListItem = {
+  id: string;
+  status: "PENDING" | "PAID" | "FAILED";
+  totalAmount: number;
+  createdAt: string;
+  event: {
+    id: string;
+    title: string;
+  };
+  ticketCount: number;
+};
+
+export type OrderDetail = {
   id: string;
   status: "PENDING" | "PAID" | "FAILED";
   totalAmount: number;
@@ -32,27 +46,57 @@ export type OrderSummary = {
       location: string;
     };
   };
-  items: Array<{
+  tickets: Array<{
     id: string;
-    quantity: number;
-    price: number;
-    ticketTier: {
-      id: string;
-      name: string;
-    } | null;
+    code: string;
+    status: "ACTIVE" | "USED" | "CANCELLED";
+    issuedAt: string;
     seat: {
-      id: string;
       section: string;
       row: string;
       seatNumber: string;
       label: string | null;
+    } | null;
+    ticketTier: {
+      id: string;
+      name: string;
     } | null;
   }>;
   payment: {
     provider: "STRIPE";
     status: "PENDING" | "SUCCESS" | "FAILED";
     paymentIntentId: string;
+    amount: number;
   } | null;
+};
+
+export type TicketDetail = {
+  id: string;
+  code: string;
+  status: "ACTIVE" | "USED" | "CANCELLED";
+  issuedAt: string;
+  attendeeName: string | null;
+  event: {
+    id: string;
+    title: string;
+    date: string;
+    venue: {
+      name: string;
+      location: string;
+    };
+  };
+  seat: {
+    id: string;
+    section: string;
+    row: string;
+    seatNumber: string;
+    label: string | null;
+  } | null;
+  ticketTier: {
+    id: string;
+    name: string;
+  } | null;
+  qrCodeImage: string;
 };
 
 export async function createCheckoutSession(
@@ -69,7 +113,17 @@ export async function createCheckoutSession(
   return response.session;
 }
 
-export async function getOrderSummary(orderId: string): Promise<OrderSummary> {
-  const response = await apiRequest<{ order: OrderSummary }>(`/orders/${orderId}`);
+export async function getOrders(): Promise<OrderListItem[]> {
+  const response = await apiRequest<{ orders: OrderListItem[] }>("/orders");
+  return response.orders;
+}
+
+export async function getOrderById(orderId: string): Promise<OrderDetail> {
+  const response = await apiRequest<{ order: OrderDetail }>(`/orders/${orderId}`);
   return response.order;
+}
+
+export async function getTicketById(ticketId: string): Promise<TicketDetail> {
+  const response = await apiRequest<{ ticket: TicketDetail }>(`/tickets/${ticketId}`);
+  return response.ticket;
 }

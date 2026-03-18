@@ -28,6 +28,8 @@
 - Add Stripe keys to:
   - `apps/api/.env`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
   - `apps/web/.env.local`: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- Add email config to `apps/api/.env`:
+  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`
 - Forward Stripe webhooks locally:
   ```bash
   stripe listen --forward-to localhost:4000/webhooks/stripe

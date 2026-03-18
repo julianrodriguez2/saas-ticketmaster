@@ -14,7 +14,8 @@ const createCheckoutSessionSchema = z
     eventId: z.string().min(1),
     seatIds: z.array(z.string().min(1)).max(8).optional(),
     ticketTierId: z.string().min(1).optional(),
-    quantity: z.coerce.number().int().positive().max(20).optional()
+    quantity: z.coerce.number().int().positive().max(20).optional(),
+    email: z.string().trim().toLowerCase().email().optional()
   })
   .superRefine((data, context) => {
     const hasSeatSelection = Array.isArray(data.seatIds) && data.seatIds.length > 0;
@@ -57,6 +58,10 @@ export async function createCheckoutSession(
   }
 
   const payload = parsedPayload.data;
+
+  if (!userId && !payload.email) {
+    throw new CheckoutServiceError(400, "Email is required for guest checkout.");
+  }
 
   let totalAmount = 0;
   const orderItems: Array<{
@@ -124,10 +129,26 @@ export async function createCheckoutSession(
     throw new CheckoutServiceError(400, "Checkout total must be greater than zero.");
   }
 
+  let orderEmail: string | null = payload.email ?? null;
+
+  if (userId) {
+    const user = await prisma.user.findUnique({
+      where: {
+        id: userId
+      },
+      select: {
+        email: true
+      }
+    });
+
+    orderEmail = user?.email ?? orderEmail;
+  }
+
   const order = await prisma.$transaction(async (transaction) => {
     const createdOrder = await transaction.order.create({
       data: {
         userId,
+        email: orderEmail,
         eventId: payload.eventId,
         totalAmount,
         status: "PENDING"

@@ -14,6 +14,9 @@ async function startServer(): Promise<void> {
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
     console.warn("STRIPE_WEBHOOK_SECRET is not set. Webhook verification will fail.");
   }
+  if (!process.env.EMAIL_FROM) {
+    console.warn("EMAIL_FROM is not set. Email sender will default to tickets@localhost.");
+  }
 
   try {
     await prisma.$connect();

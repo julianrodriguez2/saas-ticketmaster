@@ -25,6 +25,8 @@ export type {
   SeatRow,
   SeatSection,
   SeatStatus,
+  Ticket,
+  TicketStatus,
   TicketTier,
   TicketingMode,
   User,

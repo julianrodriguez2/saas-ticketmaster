@@ -40,6 +40,12 @@ enum PaymentStatus {
   FAILED
 }
 
+enum TicketStatus {
+  ACTIVE
+  USED
+  CANCELLED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -47,6 +53,7 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
   orders    Order[]
+  tickets   Ticket[]
 }
 
 model Venue {
@@ -67,8 +74,9 @@ model Event {
   createdAt     DateTime      @default(now())
   venue         Venue         @relation(fields: [venueId], references: [id], onDelete: Cascade)
   ticketTiers   TicketTier[]
-  seatSections SeatSection[]
+  seatSections  SeatSection[]
   orders        Order[]
+  tickets       Ticket[]
 }
 
 model TicketTier {
@@ -79,6 +87,7 @@ model TicketTier {
   price      Decimal     @db.Decimal(10, 2)
   quantity   Int
   orderItems OrderItem[]
+  tickets    Ticket[]
 }
 
 model SeatSection {
@@ -111,6 +120,7 @@ model Seat {
   price      Decimal     @db.Decimal(10, 2)
   status     SeatStatus  @default(AVAILABLE)
   orderItems OrderItem[]
+  tickets    Ticket[]
 
   @@unique([rowId, seatNumber])
 }
@@ -118,6 +128,7 @@ model Seat {
 model Order {
   id          String      @id @default(cuid())
   userId      String?
+  email       String?
   eventId     String
   totalAmount Decimal     @db.Decimal(10, 2)
   status      OrderStatus @default(PENDING)
@@ -126,6 +137,7 @@ model Order {
   event       Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
   items       OrderItem[]
   payment     Payment?
+  tickets     Ticket[]
 
   @@index([eventId])
   @@index([userId])
@@ -156,4 +168,27 @@ model Payment {
   status          PaymentStatus   @default(PENDING)
   createdAt       DateTime        @default(now())
   order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Ticket {
+  id           String      @id @default(cuid())
+  orderId      String
+  eventId      String
+  userId       String?
+  seatId       String?
+  ticketTierId String?
+  code         String      @unique
+  qrCodeData   String?
+  status       TicketStatus @default(ACTIVE)
+  issuedAt     DateTime     @default(now())
+  attendeeName String?
+  order        Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  event        Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  seat         Seat?       @relation(fields: [seatId], references: [id], onDelete: SetNull)
+  ticketTier   TicketTier? @relation(fields: [ticketTierId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([eventId])
+  @@index([userId])
 }

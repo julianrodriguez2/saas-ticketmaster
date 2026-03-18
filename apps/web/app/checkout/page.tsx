@@ -4,13 +4,15 @@ import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckoutSummary, type CheckoutSummaryData } from "../../components/checkout/CheckoutSummary";
 import { PaymentForm } from "../../components/checkout/PaymentForm";
 import {
   createCheckoutSession,
-  type CheckoutSession
+  type CheckoutSession,
+  type CreateCheckoutSessionInput
 } from "../../lib/checkout-api";
+import { useAuth } from "../../lib/auth-context";
 import {
   getEventById,
   validateGASelection,
@@ -21,13 +23,30 @@ import {
 const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
 
+type CheckoutSelectionPayload =
+  | {
+      eventId: string;
+      seatIds: string[];
+    }
+  | {
+      eventId: string;
+      ticketTierId: string;
+      quantity: number;
+    };
+
 export default function CheckoutPage() {
   const searchParams = useSearchParams();
+  const { user, isLoading: isAuthLoading } = useAuth();
+
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [summary, setSummary] = useState<CheckoutSummaryData | null>(null);
+  const [selectionPayload, setSelectionPayload] = useState<CheckoutSelectionPayload | null>(null);
   const [session, setSession] = useState<CheckoutSession | null>(null);
+  const [guestEmail, setGuestEmail] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   const eventId = searchParams.get("eventId") ?? "";
   const seatIds = searchParams.get("seatIds");
@@ -41,6 +60,38 @@ export default function CheckoutPage() {
         ? `/checkout/cancel?retry=${encodeURIComponent(retryQuery)}`
         : "/checkout/cancel",
     [retryQuery]
+  );
+
+  const initializeSession = useCallback(
+    async (email?: string): Promise<void> => {
+      if (!selectionPayload || session || isCreatingSession) {
+        return;
+      }
+
+      setSessionError(null);
+      setIsCreatingSession(true);
+
+      try {
+        const payload: CreateCheckoutSessionInput = email
+          ? {
+              ...selectionPayload,
+              email
+            }
+          : selectionPayload;
+
+        const nextSession = await createCheckoutSession(payload);
+        setSession(nextSession);
+      } catch (sessionError) {
+        setSessionError(
+          sessionError instanceof Error
+            ? sessionError.message
+            : "Unable to initialize payment session."
+        );
+      } finally {
+        setIsCreatingSession(false);
+      }
+    },
+    [isCreatingSession, selectionPayload, session]
   );
 
   useEffect(() => {
@@ -58,9 +109,11 @@ export default function CheckoutPage() {
 
     let isCancelled = false;
 
-    async function initializeCheckout(): Promise<void> {
+    async function loadCheckoutContext(): Promise<void> {
       setIsLoading(true);
       setError(null);
+      setSessionError(null);
+      setSession(null);
 
       try {
         const eventDetail = await getEventById(eventId);
@@ -87,20 +140,16 @@ export default function CheckoutPage() {
             throw new Error("Selected seats are no longer available.");
           }
 
-          const nextSummary: CheckoutSummaryData = {
-            mode: "RESERVED",
-            seats: validation.selectedSeats,
-            totalAmount: validation.totalPrice
-          };
-
-          const nextSession = await createCheckoutSession({
-            eventId: eventDetail.id,
-            seatIds: parsedSeatIds
-          });
-
           if (!isCancelled) {
-            setSummary(nextSummary);
-            setSession(nextSession);
+            setSummary({
+              mode: "RESERVED",
+              seats: validation.selectedSeats,
+              totalAmount: validation.totalPrice
+            });
+            setSelectionPayload({
+              eventId: eventDetail.id,
+              seatIds: parsedSeatIds
+            });
           }
 
           return;
@@ -122,24 +171,20 @@ export default function CheckoutPage() {
           throw new Error(validation.message ?? "Selected GA quantity is unavailable.");
         }
 
-        const nextSummary: CheckoutSummaryData = {
-          mode: "GA",
-          tierId: validation.tier.id,
-          tierName: validation.tier.name,
-          quantity: validation.quantity,
-          unitPrice: validation.tier.price,
-          totalAmount: validation.totalPrice
-        };
-
-        const nextSession = await createCheckoutSession({
-          eventId: eventDetail.id,
-          ticketTierId: validation.tier.id,
-          quantity: validation.quantity
-        });
-
         if (!isCancelled) {
-          setSummary(nextSummary);
-          setSession(nextSession);
+          setSummary({
+            mode: "GA",
+            tierId: validation.tier.id,
+            tierName: validation.tier.name,
+            quantity: validation.quantity,
+            unitPrice: validation.tier.price,
+            totalAmount: validation.totalPrice
+          });
+          setSelectionPayload({
+            eventId: eventDetail.id,
+            ticketTierId: validation.tier.id,
+            quantity: validation.quantity
+          });
         }
       } catch (checkoutError) {
         if (!isCancelled) {
@@ -156,14 +201,24 @@ export default function CheckoutPage() {
       }
     }
 
-    void initializeCheckout();
+    void loadCheckoutContext();
 
     return () => {
       isCancelled = true;
     };
   }, [eventId, quantityParam, seatIds, ticketTierId]);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+
+    if (user && selectionPayload && !session && !isCreatingSession) {
+      void initializeSession();
+    }
+  }, [initializeSession, isAuthLoading, isCreatingSession, selectionPayload, session, user]);
+
+  if (isLoading || isAuthLoading) {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-6 py-20">
         <p className="text-sm text-slate-600">Preparing secure checkout...</p>
@@ -171,10 +226,10 @@ export default function CheckoutPage() {
     );
   }
 
-  if (error || !event || !summary || !session) {
+  if (error || !event || !summary || !selectionPayload) {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-6 py-20">
-        <p className="text-sm text-rose-600">{error ?? "Checkout session could not be created."}</p>
+        <p className="text-sm text-rose-600">{error ?? "Checkout setup failed."}</p>
         <Link
           href="/events"
           className="inline-flex w-fit rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
@@ -217,18 +272,70 @@ export default function CheckoutPage() {
           summary={summary}
         />
 
-        <Elements
-          stripe={stripePromise}
-          options={{
-            clientSecret: session.clientSecret
-          }}
-        >
-          <PaymentForm
-            clientSecret={session.clientSecret}
-            orderId={session.orderId}
-            cancelRedirectPath={cancelRedirectPath}
-          />
-        </Elements>
+        {session ? (
+          <Elements
+            stripe={stripePromise}
+            options={{
+              clientSecret: session.clientSecret
+            }}
+          >
+            <PaymentForm
+              clientSecret={session.clientSecret}
+              orderId={session.orderId}
+              cancelRedirectPath={cancelRedirectPath}
+            />
+          </Elements>
+        ) : (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Payment Setup</h2>
+            {user ? (
+              <div className="mt-3 space-y-3">
+                <p className="text-sm text-slate-600">Initializing payment session...</p>
+                {sessionError ? <p className="text-sm text-rose-600">{sessionError}</p> : null}
+                {sessionError ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void initializeSession();
+                    }}
+                    disabled={isCreatingSession}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    Retry Setup
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <p className="text-sm text-slate-600">
+                  Enter your email to continue as a guest and receive confirmation.
+                </p>
+                <label className="block text-sm font-medium text-slate-700" htmlFor="guest-email">
+                  Email
+                </label>
+                <input
+                  id="guest-email"
+                  type="email"
+                  value={guestEmail}
+                  onChange={(event) => setGuestEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void initializeSession(guestEmail.trim().toLowerCase());
+                  }}
+                  disabled={isCreatingSession || !guestEmail.trim()}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isCreatingSession ? "Initializing..." : "Continue to Payment"}
+                </button>
+                {sessionError ? <p className="text-sm text-rose-600">{sessionError}</p> : null}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );

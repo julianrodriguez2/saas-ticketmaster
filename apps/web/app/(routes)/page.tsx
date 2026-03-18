@@ -103,6 +103,12 @@ export default function HomePage() {
         ) : user ? (
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm text-slate-700">{user.email}</p>
+            <Link
+              href="/orders"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Orders
+            </Link>
             {user.role === "ADMIN" ? (
               <Link
                 href="/admin"

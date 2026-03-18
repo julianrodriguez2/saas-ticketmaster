@@ -1,4 +1,4 @@
-import { prisma, type Role } from "@ticketing/db";
+import { prisma, type Role, type TicketStatus } from "@ticketing/db";
 
 export class OrderServiceError extends Error {
   public readonly statusCode: number;
@@ -14,9 +14,56 @@ type Requester = {
   role: Role;
 };
 
+export async function listOrdersForUser(userId: string): Promise<Array<{
+  id: string;
+  status: "PENDING" | "PAID" | "FAILED";
+  totalAmount: number;
+  createdAt: Date;
+  event: {
+    id: string;
+    title: string;
+  };
+  ticketCount: number;
+}>> {
+  const orders = await prisma.order.findMany({
+    where: {
+      userId
+    },
+    orderBy: {
+      createdAt: "desc"
+    },
+    select: {
+      id: true,
+      status: true,
+      totalAmount: true,
+      createdAt: true,
+      event: {
+        select: {
+          id: true,
+          title: true
+        }
+      },
+      _count: {
+        select: {
+          tickets: true
+        }
+      }
+    }
+  });
+
+  return orders.map((order) => ({
+    id: order.id,
+    status: order.status,
+    totalAmount: Number(order.totalAmount),
+    createdAt: order.createdAt,
+    event: order.event,
+    ticketCount: order._count.tickets
+  }));
+}
+
 export async function getOrderById(
   orderId: string,
-  requester: Requester | null
+  requester: Requester
 ): Promise<{
   id: string;
   status: "PENDING" | "PAID" | "FAILED";
@@ -31,26 +78,27 @@ export async function getOrderById(
       location: string;
     };
   };
-  items: Array<{
+  tickets: Array<{
     id: string;
-    quantity: number;
-    price: number;
-    ticketTier: {
-      id: string;
-      name: string;
-    } | null;
+    code: string;
+    status: TicketStatus;
+    issuedAt: Date;
     seat: {
-      id: string;
       section: string;
       row: string;
       seatNumber: string;
       label: string | null;
+    } | null;
+    ticketTier: {
+      id: string;
+      name: string;
     } | null;
   }>;
   payment: {
     provider: "STRIPE";
     status: "PENDING" | "SUCCESS" | "FAILED";
     paymentIntentId: string;
+    amount: number;
   } | null;
 }> {
   const order = await prisma.order.findUnique({
@@ -71,17 +119,17 @@ export async function getOrderById(
           }
         }
       },
-      items: {
-        include: {
-          ticketTier: {
-            select: {
-              id: true,
-              name: true
-            }
-          },
+      tickets: {
+        orderBy: {
+          issuedAt: "asc"
+        },
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          issuedAt: true,
           seat: {
             select: {
-              id: true,
               seatNumber: true,
               label: true,
               row: {
@@ -95,6 +143,12 @@ export async function getOrderById(
                 }
               }
             }
+          },
+          ticketTier: {
+            select: {
+              id: true,
+              name: true
+            }
           }
         }
       },
@@ -102,7 +156,8 @@ export async function getOrderById(
         select: {
           provider: true,
           status: true,
-          paymentIntentId: true
+          paymentIntentId: true,
+          amount: true
         }
       }
     }
@@ -112,12 +167,8 @@ export async function getOrderById(
     throw new OrderServiceError(404, "Order not found.");
   }
 
-  if (order.userId) {
-    if (!requester) {
-      throw new OrderServiceError(403, "You are not authorized to view this order.");
-    }
-
-    if (requester.role !== "ADMIN" && requester.userId !== order.userId) {
+  if (requester.role !== "ADMIN") {
+    if (!order.userId || order.userId !== requester.userId) {
       throw new OrderServiceError(403, "You are not authorized to view this order.");
     }
   }
@@ -136,27 +187,84 @@ export async function getOrderById(
         location: order.event.venue.location
       }
     },
-    items: order.items.map((item) => ({
-      id: item.id,
-      quantity: item.quantity,
-      price: Number(item.price),
-      ticketTier: item.ticketTier,
-      seat: item.seat
+    tickets: order.tickets.map((ticket) => ({
+      id: ticket.id,
+      code: ticket.code,
+      status: ticket.status,
+      issuedAt: ticket.issuedAt,
+      seat: ticket.seat
         ? {
-            id: item.seat.id,
-            section: item.seat.row.section.name,
-            row: item.seat.row.label,
-            seatNumber: item.seat.seatNumber,
-            label: item.seat.label
+            section: ticket.seat.row.section.name,
+            row: ticket.seat.row.label,
+            seatNumber: ticket.seat.seatNumber,
+            label: ticket.seat.label
           }
-        : null
+        : null,
+      ticketTier: ticket.ticketTier
     })),
     payment: order.payment
       ? {
           provider: order.payment.provider,
           status: order.payment.status,
-          paymentIntentId: order.payment.paymentIntentId
+          paymentIntentId: order.payment.paymentIntentId,
+          amount: Number(order.payment.amount)
         }
       : null
+  };
+}
+
+export async function getOrderEmailAndSummary(orderId: string): Promise<{
+  email: string | null;
+  eventTitle: string;
+  eventDate: Date;
+  venueName: string;
+  venueLocation: string;
+  totalAmount: number;
+  ticketCount: number;
+} | null> {
+  const order = await prisma.order.findUnique({
+    where: {
+      id: orderId
+    },
+    select: {
+      email: true,
+      user: {
+        select: {
+          email: true
+        }
+      },
+      totalAmount: true,
+      event: {
+        select: {
+          title: true,
+          date: true,
+          venue: {
+            select: {
+              name: true,
+              location: true
+            }
+          }
+        }
+      },
+      _count: {
+        select: {
+          tickets: true
+        }
+      }
+    }
+  });
+
+  if (!order) {
+    return null;
+  }
+
+  return {
+    email: order.email ?? order.user?.email ?? null,
+    eventTitle: order.event.title,
+    eventDate: order.event.date,
+    venueName: order.event.venue.name,
+    venueLocation: order.event.venue.location,
+    totalAmount: Number(order.totalAmount),
+    ticketCount: order._count.tickets
   };
 }

@@ -1,5 +1,8 @@
 import { prisma, type Prisma } from "@ticketing/db";
 import Stripe from "stripe";
+import { sendOrderConfirmationEmail } from "../email/email.service";
+import { getOrderEmailAndSummary } from "../orders/order.service";
+import { issueTicketsForOrder } from "../tickets/ticket.service";
 
 let stripeClient: Stripe | null = null;
 
@@ -92,71 +95,20 @@ export async function recordStripePayment(input: {
 export async function handleStripePaymentIntentSucceeded(
   paymentIntent: Stripe.PaymentIntent
 ): Promise<void> {
-  const fulfilledOrderId = await prisma.$transaction(async (transaction) => {
-    const payment = await transaction.payment.findUnique({
-      where: {
-        paymentIntentId: paymentIntent.id
-      },
-      include: {
-        order: {
-          include: {
-            event: {
-              select: {
-                id: true,
-                ticketingMode: true
-              }
-            },
-            items: true
-          }
-        }
-      }
-    });
+  const finalizedPayment = await finalizeOrderPayment(paymentIntent.id);
 
-    if (!payment) {
-      return null;
+  if (!finalizedPayment) {
+    return;
+  }
+
+  const issuance = await issueTicketsForOrder(finalizedPayment.orderId);
+
+  if (finalizedPayment.newlyPaid || !issuance.alreadyIssued) {
+    try {
+      await sendOrderConfirmationForOrder(finalizedPayment.orderId, issuance.ticketCount);
+    } catch (error) {
+      console.error("Order confirmation email failed.", error);
     }
-
-    if (payment.status === "SUCCESS" || payment.order.status === "PAID") {
-      return null;
-    }
-
-    if (payment.status === "FAILED" || payment.order.status === "FAILED") {
-      return null;
-    }
-
-    const canFulfill =
-      payment.order.event.ticketingMode === "RESERVED"
-        ? await fulfillReservedOrder(transaction, payment.order.id, payment.order.event.id)
-        : await fulfillGAOrder(transaction, payment.order.id, payment.order.event.id);
-
-    if (!canFulfill) {
-      await markOrderAndPaymentFailed(transaction, payment.order.id, payment.id);
-      return null;
-    }
-
-    await transaction.order.update({
-      where: {
-        id: payment.order.id
-      },
-      data: {
-        status: "PAID"
-      }
-    });
-
-    await transaction.payment.update({
-      where: {
-        id: payment.id
-      },
-      data: {
-        status: "SUCCESS"
-      }
-    });
-
-    return payment.order.id;
-  });
-
-  if (fulfilledOrderId) {
-    runOrderConfirmationPlaceholder(fulfilledOrderId);
   }
 }
 
@@ -187,6 +139,128 @@ export async function handleStripePaymentIntentFailed(
     }
 
     await markOrderAndPaymentFailed(transaction, payment.order.id, payment.id);
+  });
+}
+
+export async function finalizeOrderPayment(
+  paymentIntentId: string
+): Promise<{
+  orderId: string;
+  newlyPaid: boolean;
+} | null> {
+  return prisma.$transaction(async (transaction) => {
+    const payment = await transaction.payment.findUnique({
+      where: {
+        paymentIntentId
+      },
+      include: {
+        order: {
+          include: {
+            event: {
+              select: {
+                id: true,
+                ticketingMode: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!payment) {
+      return null;
+    }
+
+    if (payment.status === "FAILED" || payment.order.status === "FAILED") {
+      return null;
+    }
+
+    if (payment.status === "SUCCESS" && payment.order.status === "PAID") {
+      return {
+        orderId: payment.order.id,
+        newlyPaid: false
+      };
+    }
+
+    if (payment.status === "SUCCESS" || payment.order.status === "PAID") {
+      await transaction.order.update({
+        where: {
+          id: payment.order.id
+        },
+        data: {
+          status: "PAID"
+        }
+      });
+
+      await transaction.payment.update({
+        where: {
+          id: payment.id
+        },
+        data: {
+          status: "SUCCESS"
+        }
+      });
+
+      return {
+        orderId: payment.order.id,
+        newlyPaid: false
+      };
+    }
+
+    const canFulfill =
+      payment.order.event.ticketingMode === "RESERVED"
+        ? await fulfillReservedOrder(transaction, payment.order.id, payment.order.event.id)
+        : await fulfillGAOrder(transaction, payment.order.id, payment.order.event.id);
+
+    if (!canFulfill) {
+      await markOrderAndPaymentFailed(transaction, payment.order.id, payment.id);
+      return null;
+    }
+
+    await transaction.order.update({
+      where: {
+        id: payment.order.id
+      },
+      data: {
+        status: "PAID"
+      }
+    });
+
+    await transaction.payment.update({
+      where: {
+        id: payment.id
+      },
+      data: {
+        status: "SUCCESS"
+      }
+    });
+
+    return {
+      orderId: payment.order.id,
+      newlyPaid: true
+    };
+  });
+}
+
+async function sendOrderConfirmationForOrder(
+  orderId: string,
+  fallbackTicketCount: number
+): Promise<void> {
+  const orderSummary = await getOrderEmailAndSummary(orderId);
+
+  if (!orderSummary || !orderSummary.email) {
+    return;
+  }
+
+  await sendOrderConfirmationEmail({
+    to: orderSummary.email,
+    orderId,
+    eventTitle: orderSummary.eventTitle,
+    eventDate: orderSummary.eventDate,
+    venueName: orderSummary.venueName,
+    venueLocation: orderSummary.venueLocation,
+    totalAmount: orderSummary.totalAmount,
+    ticketCount: orderSummary.ticketCount || fallbackTicketCount
   });
 }
 
@@ -338,8 +412,4 @@ async function markOrderAndPaymentFailed(
       status: "FAILED"
     }
   });
-}
-
-function runOrderConfirmationPlaceholder(orderId: string): void {
-  console.info(`Order ${orderId} marked as PAID. Confirmation workflow placeholder executed.`);
 }
