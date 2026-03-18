@@ -11,4 +11,16 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
-export type { Event, Role, TicketTier, User, Venue } from "@prisma/client";
+export type {
+  Event,
+  Prisma,
+  Role,
+  Seat,
+  SeatRow,
+  SeatSection,
+  SeatStatus,
+  TicketTier,
+  TicketingMode,
+  User,
+  Venue
+} from "@prisma/client";

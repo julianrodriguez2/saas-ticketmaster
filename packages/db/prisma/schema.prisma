@@ -12,6 +12,18 @@ enum Role {
   ADMIN
 }
 
+enum TicketingMode {
+  GA
+  RESERVED
+}
+
+enum SeatStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+  BLOCKED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -34,9 +46,11 @@ model Event {
   description String
   date        DateTime
   venueId     String
+  ticketingMode TicketingMode @default(GA)
   createdAt   DateTime     @default(now())
   venue       Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
   ticketTiers TicketTier[]
+  seatSections SeatSection[]
 }
 
 model TicketTier {
@@ -46,4 +60,37 @@ model TicketTier {
   name     String
   price    Decimal @db.Decimal(10, 2)
   quantity Int
+}
+
+model SeatSection {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  rows      SeatRow[]
+}
+
+model SeatRow {
+  id        String @id @default(cuid())
+  sectionId String
+  section   SeatSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  label     String
+  sortOrder Int
+  seats     Seat[]
+}
+
+model Seat {
+  id         String  @id @default(cuid())
+  rowId      String
+  row        SeatRow @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  seatNumber String
+  label      String?
+  x          Int
+  y          Int
+  price      Decimal @db.Decimal(10, 2)
+  status     SeatStatus @default(AVAILABLE)
+
+  @@unique([rowId, seatNumber])
 }

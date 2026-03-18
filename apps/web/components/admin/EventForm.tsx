@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState, type FormEvent } from "react";
 import {
   createEvent,
   type CreateEventInput,
+  type TicketingMode,
   type Venue
 } from "../../lib/admin-api";
 import {
@@ -27,6 +28,7 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
   const [venueId, setVenueId] = useState("");
+  const [ticketingMode, setTicketingMode] = useState<TicketingMode>("GA");
   const [ticketTiers, setTicketTiers] = useState<TicketTierDraft[]>([
     emptyTicketTier
   ]);
@@ -69,24 +71,28 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
       return;
     }
 
-    const parsedTicketTiers = ticketTiers.map((tier) => ({
-      name: tier.name.trim(),
-      price: Number(tier.price),
-      quantity: Number(tier.quantity)
-    }));
+    let parsedTicketTiers: CreateEventInput["ticketTiers"] = [];
 
-    const hasInvalidTier = parsedTicketTiers.some(
-      (tier) =>
-        !tier.name ||
-        !Number.isFinite(tier.price) ||
-        tier.price <= 0 ||
-        !Number.isInteger(tier.quantity) ||
-        tier.quantity <= 0
-    );
+    if (ticketingMode === "GA") {
+      parsedTicketTiers = ticketTiers.map((tier) => ({
+        name: tier.name.trim(),
+        price: Number(tier.price),
+        quantity: Number(tier.quantity)
+      }));
 
-    if (hasInvalidTier) {
-      setError("Each ticket tier must have a name, positive price, and positive quantity.");
-      return;
+      const hasInvalidTier = parsedTicketTiers.some(
+        (tier) =>
+          !tier.name ||
+          !Number.isFinite(tier.price) ||
+          tier.price <= 0 ||
+          !Number.isInteger(tier.quantity) ||
+          tier.quantity <= 0
+      );
+
+      if (hasInvalidTier) {
+        setError("Each GA ticket tier must include name, price, and quantity.");
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -97,16 +103,22 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
         description,
         date,
         venueId,
+        ticketingMode,
         ticketTiers: parsedTicketTiers
       };
 
-      await createEvent(payload);
+      const createdEvent = await createEvent(payload);
 
       setTitle("");
       setDescription("");
       setDate("");
+      setTicketingMode("GA");
       setTicketTiers([{ ...emptyTicketTier }]);
-      setSuccess("Event created successfully.");
+      setSuccess(
+        createdEvent.ticketingMode === "RESERVED"
+          ? "Reserved event created. Configure its seat map from the dashboard."
+          : "GA event created successfully."
+      );
       await onCreated();
     } catch (submissionError) {
       setError(
@@ -194,31 +206,54 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
           </div>
         </div>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Ticket Tiers
-            </h3>
-            <button
-              type="button"
-              onClick={handleAddTier}
-              className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-            >
-              Add Tier
-            </button>
-          </div>
-
-          {ticketTiers.map((tier, index) => (
-            <TicketTierInput
-              key={`ticket-tier-${index}`}
-              index={index}
-              value={tier}
-              canRemove={ticketTiers.length > 1}
-              onChange={(nextTier) => handleTierChange(index, nextTier)}
-              onRemove={() => handleRemoveTier(index)}
-            />
-          ))}
+        <div>
+          <label className="block text-sm font-medium text-slate-700" htmlFor="ticketing-mode">
+            Ticketing Mode
+          </label>
+          <select
+            id="ticketing-mode"
+            value={ticketingMode}
+            onChange={(event) => setTicketingMode(event.target.value as TicketingMode)}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
+          >
+            <option value="GA">General Admission (GA)</option>
+            <option value="RESERVED">Reserved Seating</option>
+          </select>
         </div>
+
+        {ticketingMode === "GA" ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                GA Ticket Tiers
+              </h3>
+              <button
+                type="button"
+                onClick={handleAddTier}
+                className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Add Tier
+              </button>
+            </div>
+
+            {ticketTiers.map((tier, index) => (
+              <TicketTierInput
+                key={`ticket-tier-${index}`}
+                index={index}
+                value={tier}
+                canRemove={ticketTiers.length > 1}
+                onChange={(nextTier) => handleTierChange(index, nextTier)}
+                onRemove={() => handleRemoveTier(index)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm text-slate-700">
+              This event will use reserved seating. Configure the seat map after creating the event.
+            </p>
+          </div>
+        )}
 
         {error ? <p className="text-sm text-rose-600">{error}</p> : null}
         {success ? <p className="text-sm text-emerald-600">{success}</p> : null}
@@ -234,4 +269,3 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
     </section>
   );
 }
-

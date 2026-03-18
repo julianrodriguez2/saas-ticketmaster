@@ -8,9 +8,14 @@ type EventCardProps = {
 export function EventCard({ event }: EventCardProps) {
   return (
     <article className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {new Date(event.date).toLocaleString()}
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {new Date(event.date).toLocaleString()}
+        </p>
+        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+          {event.ticketingMode}
+        </span>
+      </div>
 
       <h3 className="mt-2 text-lg font-semibold text-slate-900">{event.title}</h3>
       <p className="mt-1 text-sm text-slate-600">

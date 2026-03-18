@@ -1,5 +1,4 @@
-import type { Prisma } from "@prisma/client";
-import { prisma } from "@ticketing/db";
+import { prisma, type Prisma, type TicketingMode } from "@ticketing/db";
 import { z } from "zod";
 
 const createEventSchema = z.object({
@@ -7,6 +6,7 @@ const createEventSchema = z.object({
   description: z.string().trim().min(1).max(5000),
   date: z.coerce.date(),
   venueId: z.string().min(1),
+  ticketingMode: z.enum(["GA", "RESERVED"]).default("GA"),
   ticketTiers: z
     .array(
       z.object({
@@ -15,7 +15,7 @@ const createEventSchema = z.object({
         quantity: z.coerce.number().int().positive()
       })
     )
-    .min(1)
+    .default([])
 });
 
 const listEventsQuerySchema = z.object({
@@ -27,6 +27,7 @@ const eventListSelect = {
   id: true,
   title: true,
   date: true,
+  ticketingMode: true,
   venue: {
     select: {
       name: true,
@@ -41,6 +42,19 @@ const eventListSelect = {
       price: "asc"
     },
     take: 1
+  },
+  seatSections: {
+    select: {
+      rows: {
+        select: {
+          seats: {
+            select: {
+              price: true
+            }
+          }
+        }
+      }
+    }
   }
 } as const;
 
@@ -50,6 +64,12 @@ const eventDetailInclude = {
     orderBy: {
       price: "asc"
     }
+  },
+  seatSections: {
+    select: {
+      id: true
+    },
+    take: 1
   }
 } as const;
 
@@ -72,7 +92,22 @@ export async function createEvent(input: unknown) {
     );
   }
 
-  const { title, description, date, venueId, ticketTiers } = parsedPayload.data;
+  const { title, description, date, venueId, ticketingMode, ticketTiers } =
+    parsedPayload.data;
+
+  if (ticketingMode === "GA" && ticketTiers.length === 0) {
+    throw new EventServiceError(
+      400,
+      "GA events must include at least one ticket tier."
+    );
+  }
+
+  if (ticketingMode === "RESERVED" && ticketTiers.length > 0) {
+    throw new EventServiceError(
+      400,
+      "Reserved events cannot include GA ticket tiers."
+    );
+  }
 
   const venueExists = await prisma.venue.findUnique({
     where: {
@@ -94,13 +129,17 @@ export async function createEvent(input: unknown) {
         description,
         date,
         venueId,
-        ticketTiers: {
-          create: ticketTiers.map((tier) => ({
-            name: tier.name,
-            price: tier.price,
-            quantity: tier.quantity
-          }))
-        }
+        ticketingMode,
+        ticketTiers:
+          ticketingMode === "GA"
+            ? {
+                create: ticketTiers.map((tier) => ({
+                  name: tier.name,
+                  price: tier.price,
+                  quantity: tier.quantity
+                }))
+              }
+            : undefined
       },
       include: eventDetailInclude
     });
@@ -138,9 +177,13 @@ export async function listEvents(query: unknown) {
     id: event.id,
     title: event.title,
     date: event.date,
+    ticketingMode: event.ticketingMode,
     venue: event.venue,
-    lowestTicketPrice:
-      event.ticketTiers[0] ? Number(event.ticketTiers[0].price) : null
+    lowestTicketPrice: getLowestTicketPrice({
+      ticketingMode: event.ticketingMode,
+      gaLowestPrice: event.ticketTiers[0]?.price,
+      seatSections: event.seatSections
+    })
   }));
 }
 
@@ -162,9 +205,13 @@ export async function listRecommendedEvents() {
     id: event.id,
     title: event.title,
     date: event.date,
+    ticketingMode: event.ticketingMode,
     venue: event.venue,
-    lowestTicketPrice:
-      event.ticketTiers[0] ? Number(event.ticketTiers[0].price) : null
+    lowestTicketPrice: getLowestTicketPrice({
+      ticketingMode: event.ticketingMode,
+      gaLowestPrice: event.ticketTiers[0]?.price,
+      seatSections: event.seatSections
+    })
   }));
 }
 
@@ -220,17 +267,53 @@ function parseListEventsQuery(
   return nextQuery;
 }
 
+function getLowestTicketPrice(input: {
+  ticketingMode: TicketingMode;
+  gaLowestPrice: Prisma.Decimal | undefined;
+  seatSections: Array<{
+    rows: Array<{
+      seats: Array<{
+        price: Prisma.Decimal;
+      }>;
+    }>;
+  }>;
+}): number | null {
+  if (input.ticketingMode === "GA") {
+    return input.gaLowestPrice ? Number(input.gaLowestPrice) : null;
+  }
+
+  let lowestPrice: number | null = null;
+
+  for (const section of input.seatSections) {
+    for (const row of section.rows) {
+      for (const seat of row.seats) {
+        const currentPrice = Number(seat.price);
+
+        if (lowestPrice === null || currentPrice < lowestPrice) {
+          lowestPrice = currentPrice;
+        }
+      }
+    }
+  }
+
+  return lowestPrice;
+}
+
 function mapEventDetail(event: {
   id: string;
   title: string;
   description: string;
   date: Date;
+  ticketingMode: TicketingMode;
   venue: {
     id: string;
     name: string;
     location: string;
     createdAt: Date;
   };
+  seatSections: Array<{
+    id: string;
+  }>;
   ticketTiers: Array<{
     id: string;
     name: string;
@@ -243,6 +326,8 @@ function mapEventDetail(event: {
     title: event.title,
     description: event.description,
     date: event.date,
+    ticketingMode: event.ticketingMode,
+    seatMapExists: event.seatSections.length > 0,
     venue: {
       id: event.venue.id,
       name: event.venue.name,

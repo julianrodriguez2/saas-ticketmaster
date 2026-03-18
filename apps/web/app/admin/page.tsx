@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EventForm } from "../../components/admin/EventForm";
@@ -133,7 +134,12 @@ export default function AdminDashboardPage() {
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             {sortedEvents.map((event) => (
               <article key={event.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-lg font-semibold text-slate-900">{event.title}</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-lg font-semibold text-slate-900">{event.title}</h3>
+                  <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                    {event.ticketingMode}
+                  </span>
+                </div>
                 <p className="mt-2 text-sm text-slate-700">
                   {new Date(event.date).toLocaleString()} at {event.venue.name} ({event.venue.location})
                 </p>
@@ -143,6 +149,14 @@ export default function AdminDashboardPage() {
                     ? "TBA"
                     : `$${event.lowestTicketPrice.toFixed(2)}`}
                 </p>
+                {event.ticketingMode === "RESERVED" ? (
+                  <Link
+                    href={`/admin/events/${event.id}/seat-map`}
+                    className="mt-3 inline-flex rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Configure Seat Map
+                  </Link>
+                ) : null}
               </article>
             ))}
           </div>
