@@ -96,13 +96,33 @@ export default function AdminDashboardPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowEventForm((currentValue) => !currentValue)}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-          >
-            {showEventForm ? "Close Event Form" : "Create Event"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/admin/analytics"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Analytics
+            </Link>
+            <Link
+              href="/admin/orders"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Orders
+            </Link>
+            <Link
+              href="/admin/tickets"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Ticket Ops
+            </Link>
+            <button
+              type="button"
+              onClick={() => setShowEventForm((currentValue) => !currentValue)}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+            >
+              {showEventForm ? "Close Event Form" : "Create Event"}
+            </button>
+          </div>
         </div>
       </section>
 
@@ -149,14 +169,28 @@ export default function AdminDashboardPage() {
                     ? "TBA"
                     : `$${event.lowestTicketPrice.toFixed(2)}`}
                 </p>
-                {event.ticketingMode === "RESERVED" ? (
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Link
-                    href={`/admin/events/${event.id}/seat-map`}
-                    className="mt-3 inline-flex rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    href={`/admin/events/${event.id}/analytics`}
+                    className="inline-flex rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                   >
-                    Configure Seat Map
+                    View Analytics
                   </Link>
-                ) : null}
+                  <Link
+                    href={`/admin/events/${event.id}/attendees`}
+                    className="inline-flex rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Attendees
+                  </Link>
+                  {event.ticketingMode === "RESERVED" ? (
+                    <Link
+                      href={`/admin/events/${event.id}/seat-map`}
+                      className="inline-flex rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      Configure Seat Map
+                    </Link>
+                  ) : null}
+                </div>
               </article>
             ))}
           </div>

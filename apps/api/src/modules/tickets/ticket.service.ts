@@ -1,6 +1,7 @@
 import { customAlphabet } from "nanoid";
 import {
   prisma,
+  type CheckInStatus,
   type Prisma,
   type Role,
   type TicketStatus
@@ -144,6 +145,8 @@ export async function getTicketById(
   id: string;
   code: string;
   status: TicketStatus;
+  checkInStatus: CheckInStatus;
+  checkedInAt: Date | null;
   issuedAt: Date;
   attendeeName: string | null;
   event: {
@@ -245,6 +248,8 @@ export async function getTicketById(
     id: ticket.id,
     code: ticket.code,
     status: ticket.status,
+    checkInStatus: ticket.checkInStatus,
+    checkedInAt: ticket.checkedInAt,
     issuedAt: ticket.issuedAt,
     attendeeName: ticket.attendeeName,
     event: {
@@ -274,6 +279,8 @@ export async function getTicketByCode(code: string): Promise<{
   id: string;
   code: string;
   status: TicketStatus;
+  checkInStatus: CheckInStatus;
+  checkedInAt: Date | null;
   orderId: string;
   eventId: string;
   seatId: string | null;
@@ -287,6 +294,8 @@ export async function getTicketByCode(code: string): Promise<{
       id: true,
       code: true,
       status: true,
+      checkInStatus: true,
+      checkedInAt: true,
       orderId: true,
       eventId: true,
       seatId: true,
@@ -299,6 +308,176 @@ export async function getTicketByCode(code: string): Promise<{
   }
 
   return ticket;
+}
+
+export async function lookupTicketForAdmin(code: string): Promise<{
+  id: string;
+  code: string;
+  status: TicketStatus;
+  checkInStatus: CheckInStatus;
+  checkedInAt: Date | null;
+  attendeeName: string | null;
+  customerEmail: string | null;
+  event: {
+    id: string;
+    title: string;
+    date: Date;
+    venue: {
+      name: string;
+      location: string;
+    };
+  };
+  seat: {
+    section: string;
+    row: string;
+    seatNumber: string;
+    label: string | null;
+  } | null;
+  ticketTier: {
+    id: string;
+    name: string;
+  } | null;
+}> {
+  const ticket = await prisma.ticket.findUnique({
+    where: {
+      code
+    },
+    include: {
+      order: {
+        select: {
+          email: true,
+          user: {
+            select: {
+              email: true
+            }
+          }
+        }
+      },
+      event: {
+        select: {
+          id: true,
+          title: true,
+          date: true,
+          venue: {
+            select: {
+              name: true,
+              location: true
+            }
+          }
+        }
+      },
+      seat: {
+        select: {
+          seatNumber: true,
+          label: true,
+          row: {
+            select: {
+              label: true,
+              section: {
+                select: {
+                  name: true
+                }
+              }
+            }
+          }
+        }
+      },
+      ticketTier: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  });
+
+  if (!ticket) {
+    throw new TicketServiceError(404, "Ticket code not found.");
+  }
+
+  return {
+    id: ticket.id,
+    code: ticket.code,
+    status: ticket.status,
+    checkInStatus: ticket.checkInStatus,
+    checkedInAt: ticket.checkedInAt,
+    attendeeName: ticket.attendeeName,
+    customerEmail: ticket.order.email ?? ticket.order.user?.email ?? null,
+    event: {
+      id: ticket.event.id,
+      title: ticket.event.title,
+      date: ticket.event.date,
+      venue: {
+        name: ticket.event.venue.name,
+        location: ticket.event.venue.location
+      }
+    },
+    seat: ticket.seat
+      ? {
+          section: ticket.seat.row.section.name,
+          row: ticket.seat.row.label,
+          seatNumber: ticket.seat.seatNumber,
+          label: ticket.seat.label
+        }
+      : null,
+    ticketTier: ticket.ticketTier
+  };
+}
+
+export async function checkInTicket(ticketId: string): Promise<{
+  id: string;
+  code: string;
+  status: TicketStatus;
+  checkInStatus: CheckInStatus;
+  checkedInAt: Date | null;
+}> {
+  return prisma.$transaction(async (transaction) => {
+    const ticket = await transaction.ticket.findUnique({
+      where: {
+        id: ticketId
+      },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        checkInStatus: true,
+        checkedInAt: true
+      }
+    });
+
+    if (!ticket) {
+      throw new TicketServiceError(404, "Ticket not found.");
+    }
+
+    if (ticket.status !== "ACTIVE") {
+      throw new TicketServiceError(409, "Only active tickets can be checked in.");
+    }
+
+    if (ticket.checkInStatus === "CHECKED_IN") {
+      throw new TicketServiceError(409, "Ticket has already been checked in.");
+    }
+
+    const checkedInAt = new Date();
+
+    const updatedTicket = await transaction.ticket.update({
+      where: {
+        id: ticket.id
+      },
+      data: {
+        checkInStatus: "CHECKED_IN",
+        checkedInAt
+      },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        checkInStatus: true,
+        checkedInAt: true
+      }
+    });
+
+    return updatedTicket;
+  });
 }
 
 async function createTicketWithUniqueCode(
@@ -329,7 +508,8 @@ async function createTicketWithUniqueCode(
           ticketTierId: input.ticketTierId,
           code,
           qrCodeData,
-          status: "ACTIVE"
+          status: "ACTIVE",
+          checkInStatus: "NOT_CHECKED_IN"
         }
       });
 

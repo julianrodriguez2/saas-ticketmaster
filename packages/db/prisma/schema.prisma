@@ -46,6 +46,11 @@ enum TicketStatus {
   CANCELLED
 }
 
+enum CheckInStatus {
+  NOT_CHECKED_IN
+  CHECKED_IN
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -171,24 +176,27 @@ model Payment {
 }
 
 model Ticket {
-  id           String      @id @default(cuid())
-  orderId      String
-  eventId      String
-  userId       String?
-  seatId       String?
-  ticketTierId String?
-  code         String      @unique
-  qrCodeData   String?
-  status       TicketStatus @default(ACTIVE)
-  issuedAt     DateTime     @default(now())
-  attendeeName String?
-  order        Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  event        Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  seat         Seat?       @relation(fields: [seatId], references: [id], onDelete: SetNull)
-  ticketTier   TicketTier? @relation(fields: [ticketTierId], references: [id], onDelete: SetNull)
+  id            String        @id @default(cuid())
+  orderId       String
+  eventId       String
+  userId        String?
+  seatId        String?
+  ticketTierId  String?
+  code          String        @unique
+  qrCodeData    String?
+  status        TicketStatus  @default(ACTIVE)
+  checkInStatus CheckInStatus @default(NOT_CHECKED_IN)
+  checkedInAt   DateTime?
+  issuedAt      DateTime      @default(now())
+  attendeeName  String?
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  event         Event         @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  seat          Seat?         @relation(fields: [seatId], references: [id], onDelete: SetNull)
+  ticketTier    TicketTier?   @relation(fields: [ticketTierId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([eventId])
   @@index([userId])
+  @@index([checkInStatus])
 }
