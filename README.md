@@ -24,6 +24,15 @@
    pnpm dev
    ```
 
+## Stripe Checkout Setup
+- Add Stripe keys to:
+  - `apps/api/.env`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+  - `apps/web/.env.local`: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- Forward Stripe webhooks locally:
+  ```bash
+  stripe listen --forward-to localhost:4000/webhooks/stripe
+  ```
+
 ## Admin Setup
 - Register a user from `/register`.
 - Promote that user to admin in PostgreSQL:

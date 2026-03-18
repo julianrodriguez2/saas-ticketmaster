@@ -24,12 +24,29 @@ enum SeatStatus {
   BLOCKED
 }
 
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum PaymentProvider {
+  STRIPE
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   password  String
   role      Role     @default(USER)
   createdAt DateTime @default(now())
+  orders    Order[]
 }
 
 model Venue {
@@ -41,25 +58,27 @@ model Venue {
 }
 
 model Event {
-  id          String       @id @default(cuid())
-  title       String
-  description String
-  date        DateTime
-  venueId     String
+  id            String        @id @default(cuid())
+  title         String
+  description   String
+  date          DateTime
+  venueId       String
   ticketingMode TicketingMode @default(GA)
-  createdAt   DateTime     @default(now())
-  venue       Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
-  ticketTiers TicketTier[]
+  createdAt     DateTime      @default(now())
+  venue         Venue         @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  ticketTiers   TicketTier[]
   seatSections SeatSection[]
+  orders        Order[]
 }
 
 model TicketTier {
-  id       String  @id @default(cuid())
-  eventId  String
-  event    Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  name     String
-  price    Decimal @db.Decimal(10, 2)
-  quantity Int
+  id         String      @id @default(cuid())
+  eventId    String
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name       String
+  price      Decimal     @db.Decimal(10, 2)
+  quantity   Int
+  orderItems OrderItem[]
 }
 
 model SeatSection {
@@ -73,7 +92,7 @@ model SeatSection {
 }
 
 model SeatRow {
-  id        String @id @default(cuid())
+  id        String    @id @default(cuid())
   sectionId String
   section   SeatSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   label     String
@@ -82,15 +101,59 @@ model SeatRow {
 }
 
 model Seat {
-  id         String  @id @default(cuid())
+  id         String      @id @default(cuid())
   rowId      String
-  row        SeatRow @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  row        SeatRow     @relation(fields: [rowId], references: [id], onDelete: Cascade)
   seatNumber String
   label      String?
   x          Int
   y          Int
-  price      Decimal @db.Decimal(10, 2)
-  status     SeatStatus @default(AVAILABLE)
+  price      Decimal     @db.Decimal(10, 2)
+  status     SeatStatus  @default(AVAILABLE)
+  orderItems OrderItem[]
 
   @@unique([rowId, seatNumber])
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  userId      String?
+  eventId     String
+  totalAmount Decimal     @db.Decimal(10, 2)
+  status      OrderStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  event       Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  items       OrderItem[]
+  payment     Payment?
+
+  @@index([eventId])
+  @@index([userId])
+}
+
+model OrderItem {
+  id           String     @id @default(cuid())
+  orderId      String
+  ticketTierId String?
+  seatId       String?
+  quantity     Int        @default(1)
+  price        Decimal    @db.Decimal(10, 2)
+  order        Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketTier   TicketTier? @relation(fields: [ticketTierId], references: [id], onDelete: SetNull)
+  seat         Seat?      @relation(fields: [seatId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([ticketTierId])
+  @@index([seatId])
+}
+
+model Payment {
+  id              String          @id @default(cuid())
+  orderId         String          @unique
+  provider        PaymentProvider @default(STRIPE)
+  paymentIntentId String          @unique
+  amount          Decimal         @db.Decimal(10, 2)
+  status          PaymentStatus   @default(PENDING)
+  createdAt       DateTime        @default(now())
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }

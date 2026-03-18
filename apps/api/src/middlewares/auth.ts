@@ -52,22 +52,40 @@ export function requireAdmin(
   next();
 }
 
+export function optionalAuth(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): void {
+  req.user = readAuthPayload(req) ?? undefined;
+  next();
+}
+
 function authenticateRequest(
   req: Request,
   res: Response
 ): AuthTokenPayload | null {
+  const authPayload = readAuthPayload(req);
+
+  if (!authPayload) {
+    res.status(401).json({ message: "Authentication required." });
+    return null;
+  }
+
+  return authPayload;
+}
+
+function readAuthPayload(req: Request): AuthTokenPayload | null {
   const token = req.cookies?.[getAuthCookieName()];
 
   if (!token || typeof token !== "string") {
-    res.status(401).json({ message: "Authentication required." });
     return null;
   }
 
   try {
     return verifyAuthToken(token);
   } catch (error) {
-    if (error instanceof AuthServiceError) {
-      res.status(error.statusCode).json({ message: error.message });
+    if (error instanceof AuthServiceError && error.statusCode === 401) {
       return null;
     }
 

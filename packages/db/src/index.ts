@@ -13,6 +13,12 @@ if (process.env.NODE_ENV !== "production") {
 
 export type {
   Event,
+  Order,
+  OrderItem,
+  OrderStatus,
+  Payment,
+  PaymentProvider,
+  PaymentStatus,
   Prisma,
   Role,
   Seat,

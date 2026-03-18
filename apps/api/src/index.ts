@@ -8,6 +8,12 @@ async function startServer(): Promise<void> {
   if (!process.env.JWT_SECRET) {
     console.warn("JWT_SECRET is not set. Auth routes will fail until it is configured.");
   }
+  if (!process.env.STRIPE_SECRET_KEY) {
+    console.warn("STRIPE_SECRET_KEY is not set. Checkout creation will fail.");
+  }
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn("STRIPE_WEBHOOK_SECRET is not set. Webhook verification will fail.");
+  }
 
   try {
     await prisma.$connect();
