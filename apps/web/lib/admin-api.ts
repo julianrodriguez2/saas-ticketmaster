@@ -1,4 +1,4 @@
-﻿import { apiRequest } from "./api";
+import { apiRequest } from "./api";
 
 export type Venue = {
   id: string;
@@ -7,23 +7,33 @@ export type Venue = {
   createdAt: string;
 };
 
-export type TicketTier = {
+export type AdminEventSummary = {
   id: string;
-  eventId: string;
-  name: string;
-  price: string;
-  quantity: number;
+  title: string;
+  date: string;
+  venue: {
+    name: string;
+    location: string;
+  };
+  lowestTicketPrice: number | null;
 };
 
-export type EventRecord = {
+export type AdminEventDetail = {
   id: string;
   title: string;
   description: string;
   date: string;
-  venueId: string;
-  createdAt: string;
-  venue: Venue;
-  ticketTiers: TicketTier[];
+  venue: {
+    id: string;
+    name: string;
+    location: string;
+  };
+  ticketTiers: Array<{
+    id: string;
+    name: string;
+    price: number;
+    quantityRemaining: number;
+  }>;
 };
 
 export type CreateVenueInput = {
@@ -57,13 +67,13 @@ export async function createVenue(input: CreateVenueInput): Promise<Venue> {
   return response.venue;
 }
 
-export async function getEvents(): Promise<EventRecord[]> {
-  const response = await apiRequest<{ events: EventRecord[] }>("/events");
+export async function getEvents(): Promise<AdminEventSummary[]> {
+  const response = await apiRequest<{ events: AdminEventSummary[] }>("/events");
   return response.events;
 }
 
-export async function createEvent(input: CreateEventInput): Promise<EventRecord> {
-  const response = await apiRequest<{ event: EventRecord }>("/events", {
+export async function createEvent(input: CreateEventInput): Promise<AdminEventDetail> {
+  const response = await apiRequest<{ event: AdminEventDetail }>("/events", {
     method: "POST",
     body: input
   });
@@ -71,8 +81,7 @@ export async function createEvent(input: CreateEventInput): Promise<EventRecord>
   return response.event;
 }
 
-export async function getEventById(eventId: string): Promise<EventRecord> {
-  const response = await apiRequest<{ event: EventRecord }>(`/events/${eventId}`);
+export async function getEventById(eventId: string): Promise<AdminEventDetail> {
+  const response = await apiRequest<{ event: AdminEventDetail }>(`/events/${eventId}`);
   return response.event;
 }
-

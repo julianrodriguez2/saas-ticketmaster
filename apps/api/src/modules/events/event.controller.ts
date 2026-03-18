@@ -1,9 +1,10 @@
-﻿import type { NextFunction, Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import {
   EventServiceError,
   createEvent,
   getEventById,
-  listEvents
+  listEvents,
+  listRecommendedEvents
 } from "./event.service";
 
 export async function createEventHandler(
@@ -20,12 +21,25 @@ export async function createEventHandler(
 }
 
 export async function listEventsHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const events = await listEvents(req.query);
+    res.status(200).json({ events });
+  } catch (error) {
+    handleEventError(error, res, next);
+  }
+}
+
+export async function listRecommendedEventsHandler(
   _req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
-    const events = await listEvents();
+    const events = await listRecommendedEvents();
     res.status(200).json({ events });
   } catch (error) {
     handleEventError(error, res, next);
@@ -57,4 +71,3 @@ function handleEventError(
 
   next(error);
 }
-

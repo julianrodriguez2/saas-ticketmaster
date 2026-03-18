@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -7,7 +7,7 @@ import { VenueForm } from "../../components/admin/VenueForm";
 import {
   getEvents,
   getVenues,
-  type EventRecord,
+  type AdminEventSummary,
   type Venue
 } from "../../lib/admin-api";
 import { useAuth } from "../../lib/auth-context";
@@ -16,7 +16,7 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [venues, setVenues] = useState<Venue[]>([]);
-  const [events, setEvents] = useState<EventRecord[]>([]);
+  const [events, setEvents] = useState<AdminEventSummary[]>([]);
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showEventForm, setShowEventForm] = useState(false);
@@ -130,25 +130,19 @@ export default function AdminDashboardPage() {
         {sortedEvents.length === 0 ? (
           <p className="mt-4 text-sm text-slate-600">No events created yet.</p>
         ) : (
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             {sortedEvents.map((event) => (
               <article key={event.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <h3 className="text-lg font-semibold text-slate-900">{event.title}</h3>
-                <p className="mt-1 text-sm text-slate-600">{event.description}</p>
                 <p className="mt-2 text-sm text-slate-700">
                   {new Date(event.date).toLocaleString()} at {event.venue.name} ({event.venue.location})
                 </p>
-
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {event.ticketTiers.map((tier) => (
-                    <div key={tier.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                      <p className="text-sm font-medium text-slate-900">{tier.name}</p>
-                      <p className="text-sm text-slate-600">
-                        ${Number(tier.price).toFixed(2)} - {tier.quantity} tickets
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                <p className="mt-2 text-sm text-slate-600">
+                  Starting price:{" "}
+                  {event.lowestTicketPrice === null
+                    ? "TBA"
+                    : `$${event.lowestTicketPrice.toFixed(2)}`}
+                </p>
               </article>
             ))}
           </div>
@@ -157,4 +151,3 @@ export default function AdminDashboardPage() {
     </main>
   );
 }
-

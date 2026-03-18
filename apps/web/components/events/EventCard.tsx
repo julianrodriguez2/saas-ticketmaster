@@ -1,0 +1,39 @@
+import Link from "next/link";
+import type { EventSummary } from "../../lib/events-api";
+
+type EventCardProps = {
+  event: EventSummary;
+};
+
+export function EventCard({ event }: EventCardProps) {
+  return (
+    <article className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {new Date(event.date).toLocaleString()}
+      </p>
+
+      <h3 className="mt-2 text-lg font-semibold text-slate-900">{event.title}</h3>
+      <p className="mt-1 text-sm text-slate-600">
+        {event.venue.name} - {event.venue.location}
+      </p>
+
+      <p className="mt-4 text-sm text-slate-700">
+        Starting at{" "}
+        <span className="font-semibold text-slate-900">
+          {event.lowestTicketPrice === null
+            ? "TBA"
+            : `$${event.lowestTicketPrice.toFixed(2)}`}
+        </span>
+      </p>
+
+      <div className="mt-5">
+        <Link
+          href={`/events/${event.id}`}
+          className="inline-flex rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+        >
+          View Details
+        </Link>
+      </div>
+    </article>
+  );
+}
