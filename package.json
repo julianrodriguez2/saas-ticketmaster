@@ -1,0 +1,16 @@
+{
+  "name": "ticketing-platform",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.5.2",
+  "scripts": {
+    "dev": "turbo run dev --filter=@ticketing/web --filter=@ticketing/api",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "db:generate": "pnpm --filter @ticketing/db run db:generate",
+    "db:migrate": "pnpm --filter @ticketing/db run db:migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3"
+  }
+}

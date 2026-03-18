@@ -1,0 +1,25 @@
+{
+  "name": "@ticketing/db",
+  "private": true,
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "prisma"],
+  "scripts": {
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "db:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "build": "pnpm run db:generate && tsc -p tsconfig.json",
+    "dev": "pnpm run db:generate && tsc -w -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "postinstall": "pnpm run build"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "prisma": "^5.22.0",
+    "typescript": "^5.7.2"
+  }
+}
