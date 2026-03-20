@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GATicketSelector } from "../../../components/events/GATicketSelector";
 import { SeatLegend } from "../../../components/events/SeatLegend";
@@ -14,6 +14,7 @@ import {
   getAvailability,
   getEventById,
   getSeatMap,
+  validateEventPresaleAccess,
   type AvailabilitySummary,
   type EventDetail,
   type PublicSeatMap,
@@ -26,17 +27,29 @@ const MAX_SELECTED_SEATS = 8;
 export default function EventDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const eventId = typeof params.id === "string" ? params.id : "";
+  const presaleLinkAccessParam =
+    searchParams.get("presale") ?? searchParams.get("presaleLink");
+  const presaleLinkAccess =
+    presaleLinkAccessParam === "1" || presaleLinkAccessParam === "true";
 
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [seatMap, setSeatMap] = useState<PublicSeatMap | null>(null);
   const [availability, setAvailability] = useState<AvailabilitySummary | null>(null);
-  const [selectedSeatsMap, setSelectedSeatsMap] = useState<Record<string, SeatSelectionCandidate>>({});
+  const [selectedSeatsMap, setSelectedSeatsMap] = useState<
+    Record<string, SeatSelectionCandidate>
+  >({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSeatMapLoading, setIsSeatMapLoading] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [presaleCodeInput, setPresaleCodeInput] = useState("");
+  const [validatedPresaleCode, setValidatedPresaleCode] = useState<string | null>(null);
+  const [presaleAccessGranted, setPresaleAccessGranted] = useState(false);
+  const [presaleNotice, setPresaleNotice] = useState<string | null>(null);
+  const [isValidatingPresale, setIsValidatingPresale] = useState(false);
 
   const selectedSeats = useMemo(
     () => Object.values(selectedSeatsMap),
@@ -56,6 +69,9 @@ export default function EventDetailPage() {
       setError(null);
       setActionError(null);
       setIsLoading(true);
+      setSelectedSeatsMap({});
+      setSeatMap(null);
+      setAvailability(null);
 
       try {
         const nextEvent = await getEventById(eventId);
@@ -65,6 +81,40 @@ export default function EventDetailPage() {
         }
 
         setEvent(nextEvent);
+        setPresaleCodeInput("");
+        setValidatedPresaleCode(null);
+
+        if (nextEvent.activePresale) {
+          setPresaleAccessGranted(false);
+          setPresaleNotice(null);
+
+          try {
+            const validation = await validateEventPresaleAccess(nextEvent.id, {
+              linkAccess: presaleLinkAccess
+            });
+
+            if (!isCancelled) {
+              setPresaleAccessGranted(validation.accessGranted);
+              setPresaleNotice(
+                validation.accessGranted
+                  ? "Presale access granted."
+                  : validation.reason ?? "Presale access is required to continue."
+              );
+            }
+          } catch (presaleError) {
+            if (!isCancelled) {
+              setPresaleAccessGranted(false);
+              setPresaleNotice(
+                presaleError instanceof Error
+                  ? presaleError.message
+                  : "Unable to validate presale access."
+              );
+            }
+          }
+        } else {
+          setPresaleAccessGranted(true);
+          setPresaleNotice(null);
+        }
 
         if (nextEvent.ticketingMode === "RESERVED") {
           setIsSeatMapLoading(true);
@@ -105,7 +155,46 @@ export default function EventDetailPage() {
     return () => {
       isCancelled = true;
     };
-  }, [eventId]);
+  }, [eventId, presaleLinkAccess]);
+
+  async function handleValidatePresaleCode(): Promise<void> {
+    if (!event?.activePresale) {
+      return;
+    }
+
+    setActionError(null);
+    setIsValidatingPresale(true);
+
+    try {
+      const validation = await validateEventPresaleAccess(event.id, {
+        code: presaleCodeInput.trim() || undefined,
+        linkAccess: presaleLinkAccess
+      });
+
+      setPresaleAccessGranted(validation.accessGranted);
+      setPresaleNotice(
+        validation.accessGranted
+          ? "Presale code accepted. You can continue to checkout."
+          : validation.reason ?? "Presale access was denied."
+      );
+
+      if (validation.accessGranted) {
+        setValidatedPresaleCode(presaleCodeInput.trim());
+      } else {
+        setValidatedPresaleCode(null);
+      }
+    } catch (presaleError) {
+      setPresaleAccessGranted(false);
+      setValidatedPresaleCode(null);
+      setPresaleNotice(
+        presaleError instanceof Error
+          ? presaleError.message
+          : "Unable to validate presale code."
+      );
+    } finally {
+      setIsValidatingPresale(false);
+    }
+  }
 
   function handleToggleSeat(candidate: SeatSelectionCandidate): void {
     setActionError(null);
@@ -134,6 +223,13 @@ export default function EventDetailPage() {
 
   async function handleContinueReservedFlow(): Promise<void> {
     if (!event) {
+      return;
+    }
+
+    if (event.activePresale && !presaleAccessGranted) {
+      setActionError(
+        presaleNotice ?? "Validate presale access before continuing to checkout."
+      );
       return;
     }
 
@@ -171,6 +267,14 @@ export default function EventDetailPage() {
         seatIds: validation.selectedSeats.map((seat) => seat.id).join(",")
       });
 
+      if (validatedPresaleCode) {
+        query.set("presaleCode", validatedPresaleCode);
+      }
+
+      if (presaleLinkAccess) {
+        query.set("presaleLinkAccess", "1");
+      }
+
       router.push(`/checkout?${query.toString()}`);
     } catch (validationError) {
       setActionError(
@@ -183,8 +287,18 @@ export default function EventDetailPage() {
     }
   }
 
-  async function handleContinueGAFlow(input: { tierId: string; quantity: number }): Promise<void> {
+  async function handleContinueGAFlow(input: {
+    tierId: string;
+    quantity: number;
+  }): Promise<void> {
     if (!event) {
+      return;
+    }
+
+    if (event.activePresale && !presaleAccessGranted) {
+      setActionError(
+        presaleNotice ?? "Validate presale access before continuing to checkout."
+      );
       return;
     }
 
@@ -204,6 +318,14 @@ export default function EventDetailPage() {
         tierId: input.tierId,
         quantity: String(input.quantity)
       });
+
+      if (validatedPresaleCode) {
+        query.set("presaleCode", validatedPresaleCode);
+      }
+
+      if (presaleLinkAccess) {
+        query.set("presaleLinkAccess", "1");
+      }
 
       router.push(`/checkout?${query.toString()}`);
     } catch (validationError) {
@@ -262,8 +384,79 @@ export default function EventDetailPage() {
           <p className="mt-1 text-sm text-slate-700">
             {event.venue.name} - {event.venue.location}
           </p>
+          {(event.salesStartAt || event.salesEndAt) && (
+            <p className="mt-3 text-xs text-slate-600">
+              Sales window: {" "}
+              {event.salesStartAt ? new Date(event.salesStartAt).toLocaleString() : "Open"} to{" "}
+              {event.salesEndAt
+                ? new Date(event.salesEndAt).toLocaleString()
+                : "Until sold out"}
+            </p>
+          )}
         </div>
       </section>
+
+      {event.activePresale ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                Active Presale
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-amber-900">
+                {event.activePresale.name}
+              </h2>
+              <p className="mt-1 text-sm text-amber-800">
+                Access type: {event.activePresale.accessType.replace("_", " ")}
+              </p>
+              <p className="mt-1 text-xs text-amber-700">
+                Ends {new Date(event.activePresale.endsAt).toLocaleString()}
+              </p>
+            </div>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                presaleAccessGranted
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-amber-200 text-amber-800"
+              }`}
+            >
+              {presaleAccessGranted ? "Access Granted" : "Access Required"}
+            </span>
+          </div>
+
+          {event.activePresale.accessType === "CODE" ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <input
+                type="text"
+                value={presaleCodeInput}
+                onChange={(inputEvent) => setPresaleCodeInput(inputEvent.target.value)}
+                placeholder="Enter presale code"
+                className="w-full max-w-sm rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-amber-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void handleValidatePresaleCode();
+                }}
+                disabled={isValidatingPresale || !presaleCodeInput.trim()}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isValidatingPresale ? "Validating..." : "Apply Code"}
+              </button>
+            </div>
+          ) : null}
+
+          {presaleNotice ? (
+            <p
+              className={`mt-3 text-sm ${
+                presaleAccessGranted ? "text-emerald-700" : "text-amber-800"
+              }`}
+            >
+              {presaleNotice}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       {actionError ? (
         <section className="rounded-xl border border-rose-200 bg-rose-50 p-4">

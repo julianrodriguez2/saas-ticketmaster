@@ -8,6 +8,10 @@ export type EventSummary = {
   title: string;
   date: string;
   ticketingMode: TicketingMode;
+  currency: string;
+  salesStartAt: string | null;
+  salesEndAt: string | null;
+  publishStatus: "DRAFT" | "PUBLISHED";
   venue: {
     name: string;
     location: string;
@@ -21,7 +25,18 @@ export type EventDetail = {
   description: string;
   date: string;
   ticketingMode: TicketingMode;
+  currency: string;
+  salesStartAt: string | null;
+  salesEndAt: string | null;
+  publishStatus: "DRAFT" | "PUBLISHED";
   seatMapExists: boolean;
+  activePresale: {
+    id: string;
+    name: string;
+    startsAt: string;
+    endsAt: string;
+    accessType: "PUBLIC" | "CODE" | "LINK_ONLY";
+  } | null;
   venue: {
     id: string;
     name: string;
@@ -93,6 +108,20 @@ export type GASelectionValidation = {
     name: string;
     price: number;
   };
+};
+
+export type PresaleValidation = {
+  valid: boolean;
+  accessGranted: boolean;
+  reason?: string;
+  presale: {
+    id: string;
+    name: string;
+    startsAt: string;
+    endsAt: string;
+    accessType: "PUBLIC" | "CODE" | "LINK_ONLY";
+    isActive: boolean;
+  } | null;
 };
 
 type GetEventsQuery = {
@@ -168,6 +197,24 @@ export async function validateGASelection(
     {
       method: "POST",
       body: { tierId, quantity }
+    }
+  );
+
+  return response.validation;
+}
+
+export async function validateEventPresaleAccess(
+  eventId: string,
+  input: {
+    code?: string;
+    linkAccess?: boolean;
+  }
+): Promise<PresaleValidation> {
+  const response = await apiRequest<{ validation: PresaleValidation }>(
+    `/events/${eventId}/presale/validate`,
+    {
+      method: "POST",
+      body: input
     }
   );
 

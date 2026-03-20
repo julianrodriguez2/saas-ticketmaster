@@ -7,6 +7,14 @@ export type TicketStatus = "ACTIVE" | "USED" | "CANCELLED";
 export type CheckInStatus = "NOT_CHECKED_IN" | "CHECKED_IN";
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
+export type PresaleAccessType = "PUBLIC" | "CODE" | "LINK_ONLY";
+export type PublishStatus = "DRAFT" | "PUBLISHED";
+export type BulkImportJobStatus =
+  | "PENDING"
+  | "VALIDATED"
+  | "COMPLETED"
+  | "FAILED"
+  | "PARTIAL";
 
 export type Venue = {
   id: string;
@@ -20,6 +28,10 @@ export type AdminEventSummary = {
   title: string;
   date: string;
   ticketingMode: TicketingMode;
+  currency: string;
+  salesStartAt: string | null;
+  salesEndAt: string | null;
+  publishStatus: PublishStatus;
   venue: {
     name: string;
     location: string;
@@ -33,7 +45,18 @@ export type AdminEventDetail = {
   description: string;
   date: string;
   ticketingMode: TicketingMode;
+  currency: string;
+  salesStartAt: string | null;
+  salesEndAt: string | null;
+  publishStatus: PublishStatus;
   seatMapExists: boolean;
+  activePresale: {
+    id: string;
+    name: string;
+    startsAt: string;
+    endsAt: string;
+    accessType: PresaleAccessType;
+  } | null;
   venue: {
     id: string;
     name: string;
@@ -99,10 +122,175 @@ export type CreateEventInput = {
   date: string;
   venueId: string;
   ticketingMode: TicketingMode;
+  currency?: string;
+  salesStartAt?: string;
+  salesEndAt?: string;
+  publishStatus?: PublishStatus;
   ticketTiers: Array<{
     name: string;
     price: number;
     quantity: number;
+  }>;
+};
+
+export type TemplateTicketTierInput = {
+  name: string;
+  price: number;
+  quantity: number;
+  sortOrder?: number;
+};
+
+export type TemplatePresaleInput = {
+  name: string;
+  startsAtOffsetHours?: number;
+  endsAtOffsetHours?: number;
+  accessType: PresaleAccessType;
+  accessCode?: string;
+  isActive?: boolean;
+};
+
+export type EventTemplate = {
+  id: string;
+  name: string;
+  description: string | null;
+  ticketingMode: TicketingMode;
+  defaultCurrency: string;
+  createdAt: string;
+  updatedAt: string;
+  venue: {
+    id: string;
+    name: string;
+    location: string;
+  } | null;
+  ticketTiers: Array<{
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    sortOrder: number;
+  }>;
+  templatePresales: Array<{
+    id: string;
+    name: string;
+    startsAtOffsetHours: number | null;
+    endsAtOffsetHours: number | null;
+    accessType: PresaleAccessType;
+    accessCode: string | null;
+    isActive: boolean;
+  }>;
+};
+
+export type EventTemplateSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  ticketingMode: TicketingMode;
+  defaultCurrency: string;
+  createdAt: string;
+  updatedAt: string;
+  venue: {
+    id: string;
+    name: string;
+    location: string;
+  } | null;
+  tierCount: number;
+  ticketTiers: Array<{
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    sortOrder: number;
+  }>;
+  presaleCount: number;
+};
+
+export type EventTemplateInput = {
+  name: string;
+  description?: string;
+  venueId?: string;
+  ticketingMode: TicketingMode;
+  defaultCurrency: string;
+  ticketTiers: TemplateTicketTierInput[];
+  templatePresales?: TemplatePresaleInput[];
+};
+
+export type ApplyTemplateInput = {
+  title: string;
+  description: string;
+  date: string;
+  venueId?: string;
+  currency?: string;
+  salesStartAt?: string;
+  salesEndAt?: string;
+  publishStatus?: PublishStatus;
+  pricingOverrides?: TemplateTicketTierInput[];
+};
+
+export type PresaleRule = {
+  id: string;
+  eventId?: string;
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  accessType: PresaleAccessType;
+  accessCode: string | null;
+  isActive: boolean;
+  createdAt?: string;
+};
+
+export type PresaleRuleInput = {
+  name: string;
+  startsAt: string;
+  endsAt: string;
+  accessType: PresaleAccessType;
+  accessCode?: string;
+  isActive?: boolean;
+};
+
+export type ImportPreviewRow = {
+  rowNumber: number;
+  title: string;
+  date: string;
+  venue: string | null;
+  ticketingMode: TicketingMode | null;
+  currency: string;
+  publishStatus: PublishStatus;
+  templateId: string | null;
+  warnings: string[];
+  isValid: boolean;
+};
+
+export type ImportValidationError = {
+  rowNumber: number;
+  fieldName: string | null;
+  message: string;
+  rawRowJson: Record<string, unknown> | null;
+};
+
+export type ImportJobSummary = {
+  id: string;
+  fileName: string;
+  status: BulkImportJobStatus;
+  totalRows: number;
+  successRows: number;
+  failedRows: number;
+  createdAt: string;
+  completedAt: string | null;
+  createdBy: {
+    id: string;
+    email: string;
+  };
+};
+
+export type ImportJobDetail = ImportJobSummary & {
+  summaryJson: Record<string, unknown> | null;
+  rowErrors: Array<{
+    id: string;
+    rowNumber: number;
+    fieldName: string | null;
+    message: string;
+    rawRowJson: Record<string, unknown> | null;
+    createdAt: string;
   }>;
 };
 
@@ -425,6 +613,112 @@ export async function createEvent(input: CreateEventInput): Promise<AdminEventDe
 export async function getEventById(eventId: string): Promise<AdminEventDetail> {
   const response = await apiRequest<{ event: AdminEventDetail }>(`/events/${eventId}`);
   return response.event;
+}
+
+export async function getEventTemplates(): Promise<EventTemplateSummary[]> {
+  const response = await apiRequest<{ templates: EventTemplateSummary[] }>(
+    "/admin/event-templates"
+  );
+  return response.templates;
+}
+
+export async function createEventTemplate(
+  input: EventTemplateInput
+): Promise<EventTemplate> {
+  const response = await apiRequest<{ template: EventTemplate }>(
+    "/admin/event-templates",
+    {
+      method: "POST",
+      body: input
+    }
+  );
+
+  return response.template;
+}
+
+export async function getEventTemplateById(templateId: string): Promise<EventTemplate> {
+  const response = await apiRequest<{ template: EventTemplate }>(
+    `/admin/event-templates/${templateId}`
+  );
+
+  return response.template;
+}
+
+export async function updateEventTemplate(
+  templateId: string,
+  input: EventTemplateInput
+): Promise<EventTemplate> {
+  const response = await apiRequest<{ template: EventTemplate }>(
+    `/admin/event-templates/${templateId}`,
+    {
+      method: "PUT",
+      body: input
+    }
+  );
+
+  return response.template;
+}
+
+export async function deleteEventTemplate(templateId: string): Promise<void> {
+  await apiRequest<{ success: boolean }>(`/admin/event-templates/${templateId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function applyEventTemplate(
+  templateId: string,
+  input: ApplyTemplateInput
+): Promise<AdminEventDetail> {
+  const response = await apiRequest<{ event: AdminEventDetail }>(
+    `/admin/event-templates/${templateId}/apply`,
+    {
+      method: "POST",
+      body: input
+    }
+  );
+
+  return response.event;
+}
+
+export async function getEventPresales(eventId: string): Promise<PresaleRule[]> {
+  const response = await apiRequest<{ presales: PresaleRule[] }>(
+    `/admin/events/${eventId}/presales`
+  );
+
+  return response.presales;
+}
+
+export async function createEventPresale(
+  eventId: string,
+  input: PresaleRuleInput
+): Promise<PresaleRule> {
+  const response = await apiRequest<{ presale: PresaleRule }>(
+    `/admin/events/${eventId}/presales`,
+    {
+      method: "POST",
+      body: input
+    }
+  );
+
+  return response.presale;
+}
+
+export async function updatePresale(
+  presaleId: string,
+  input: PresaleRuleInput
+): Promise<PresaleRule> {
+  const response = await apiRequest<{ presale: PresaleRule }>(`/admin/presales/${presaleId}`, {
+    method: "PUT",
+    body: input
+  });
+
+  return response.presale;
+}
+
+export async function deletePresale(presaleId: string): Promise<void> {
+  await apiRequest<{ success: boolean }>(`/admin/presales/${presaleId}`, {
+    method: "DELETE"
+  });
 }
 
 export async function getAdminSeatMap(eventId: string): Promise<AdminSeatMap> {
@@ -827,4 +1121,145 @@ export async function markAllAdminNotificationsRead(): Promise<{
   return apiRequest<{ count: number }>("/admin/notifications/read-all", {
     method: "POST"
   });
+}
+
+export async function validateEventImportCsv(file: File): Promise<{
+  importJob: {
+    id: string;
+    fileName: string;
+    status: BulkImportJobStatus;
+    totalRows: number;
+    successRows: number;
+    failedRows: number;
+    createdAt: string;
+    completedAt: string | null;
+  };
+  previewRows: ImportPreviewRow[];
+  validationErrors: ImportValidationError[];
+  summary: {
+    totalRows: number;
+    validRows: number;
+    invalidRows: number;
+  };
+}> {
+  const formData = new FormData();
+  formData.set("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/admin/imports/events/validate`, {
+    method: "POST",
+    body: formData,
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, "Unable to validate CSV import.");
+  }
+
+  return (await response.json()) as {
+    importJob: {
+      id: string;
+      fileName: string;
+      status: BulkImportJobStatus;
+      totalRows: number;
+      successRows: number;
+      failedRows: number;
+      createdAt: string;
+      completedAt: string | null;
+    };
+    previewRows: ImportPreviewRow[];
+    validationErrors: ImportValidationError[];
+    summary: {
+      totalRows: number;
+      validRows: number;
+      invalidRows: number;
+    };
+  };
+}
+
+export async function commitEventImport(importJobId: string): Promise<{
+  importJobId: string;
+  successCount: number;
+  failedCount: number;
+  createdEventIds: string[];
+  errorSummary: Array<{
+    rowNumber: number;
+    message: string;
+    fieldName?: string;
+  }>;
+}> {
+  return apiRequest<{
+    importJobId: string;
+    successCount: number;
+    failedCount: number;
+    createdEventIds: string[];
+    errorSummary: Array<{
+      rowNumber: number;
+      message: string;
+      fieldName?: string;
+    }>;
+  }>("/admin/imports/events/commit", {
+    method: "POST",
+    body: {
+      importJobId
+    }
+  });
+}
+
+export async function getImportJobs(query?: {
+  page?: number;
+  limit?: number;
+}): Promise<{
+  jobs: ImportJobSummary[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}> {
+  const params = new URLSearchParams();
+
+  if (query?.page) {
+    params.set("page", String(query.page));
+  }
+
+  if (query?.limit) {
+    params.set("limit", String(query.limit));
+  }
+
+  const path = params.toString()
+    ? `/admin/imports?${params.toString()}`
+    : "/admin/imports";
+
+  return apiRequest<{
+    jobs: ImportJobSummary[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  }>(path);
+}
+
+export async function getImportJobById(importJobId: string): Promise<ImportJobDetail> {
+  const response = await apiRequest<{ job: ImportJobDetail }>(`/admin/imports/${importJobId}`);
+  return response.job;
+}
+
+async function throwApiErrorFromResponse(
+  response: Response,
+  fallbackMessage: string
+): Promise<never> {
+  const responseType = response.headers.get("content-type") ?? "";
+
+  if (responseType.includes("application/json")) {
+    const body = (await response.json()) as {
+      message?: string;
+    };
+    throw new ApiError(response.status, body.message ?? fallbackMessage);
+  }
+
+  const text = await response.text();
+  throw new ApiError(response.status, text || fallbackMessage);
 }

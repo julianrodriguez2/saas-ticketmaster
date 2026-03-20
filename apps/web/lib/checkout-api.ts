@@ -5,12 +5,16 @@ export type CreateCheckoutSessionInput =
       eventId: string;
       seatIds: string[];
       email?: string;
+      presaleCode?: string;
+      presaleLinkAccess?: boolean;
     }
   | {
       eventId: string;
       ticketTierId: string;
       quantity: number;
       email?: string;
+      presaleCode?: string;
+      presaleLinkAccess?: boolean;
     };
 
 export type CheckoutSession = {

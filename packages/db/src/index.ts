@@ -13,8 +13,12 @@ if (process.env.NODE_ENV !== "production") {
 
 export type {
   AdminNotification,
+  BulkImportJob,
+  BulkImportJobStatus,
+  BulkImportRowError,
   CheckInStatus,
   Event,
+  EventTemplate,
   NotificationSeverity,
   Order,
   OrderItem,
@@ -24,7 +28,10 @@ export type {
   PaymentAttemptStatus,
   PaymentProvider,
   PaymentStatus,
+  PresaleAccessType,
+  PresaleRule,
   Prisma,
+  PublishStatus,
   RiskLevel,
   Role,
   Seat,
@@ -36,6 +43,8 @@ export type {
   TicketStatus,
   TicketTier,
   TicketingMode,
+  TemplatePresaleRule,
+  TemplateTicketTier,
   User,
   Venue
 } from "@prisma/client";

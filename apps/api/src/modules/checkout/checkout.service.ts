@@ -15,6 +15,10 @@ import {
   getStripeClient,
   recordStripePayment
 } from "../payments/payment.service";
+import {
+  PresaleServiceError,
+  validatePresaleAccess
+} from "../presales/presale.service";
 import { SeatMapServiceError, validateSelection } from "../seatmaps/seatmap.service";
 import { recordSystemEvent, recordSystemEventSafe } from "../system-events/systemEvent.service";
 
@@ -24,7 +28,9 @@ const createCheckoutSessionSchema = z
     seatIds: z.array(z.string().min(1)).max(20).optional(),
     ticketTierId: z.string().min(1).optional(),
     quantity: z.coerce.number().int().positive().max(50).optional(),
-    email: z.string().trim().toLowerCase().email().optional()
+    email: z.string().trim().toLowerCase().email().optional(),
+    presaleCode: z.string().trim().max(120).optional(),
+    presaleLinkAccess: z.coerce.boolean().optional()
   })
   .superRefine((data, context) => {
     const hasSeatSelection = Array.isArray(data.seatIds) && data.seatIds.length > 0;
@@ -110,6 +116,36 @@ export async function createCheckoutSession(
     userId: userId ?? null,
     payloadEmail: payload.email ?? null
   });
+
+  let presaleValidation: Awaited<ReturnType<typeof validatePresaleAccess>>;
+
+  try {
+    presaleValidation = await validatePresaleAccess(payload.eventId, {
+      code: payload.presaleCode,
+      linkAccess: payload.presaleLinkAccess
+    });
+  } catch (error) {
+    if (error instanceof PresaleServiceError) {
+      throw new CheckoutServiceError(error.statusCode, error.message);
+    }
+
+    throw error;
+  }
+
+  if (!presaleValidation.accessGranted) {
+    const denialReason =
+      presaleValidation.reason ?? "Presale access is required for this event.";
+
+    await handleCheckoutBlocked({
+      eventId: payload.eventId,
+      email: orderEmail,
+      ipAddress,
+      reason: denialReason,
+      type: "CHECKOUT_BLOCKED_PRESALE"
+    });
+
+    throw new CheckoutServiceError(403, denialReason);
+  }
 
   const selection = await resolveSelection(payload.eventId, payload);
 
@@ -479,7 +515,10 @@ async function handleCheckoutBlocked(input: {
   email: string | null;
   ipAddress: string | null;
   reason: string;
-  type: "CHECKOUT_BLOCKED_MAX_TICKETS" | "CHECKOUT_BLOCKED_RISK";
+  type:
+    | "CHECKOUT_BLOCKED_MAX_TICKETS"
+    | "CHECKOUT_BLOCKED_RISK"
+    | "CHECKOUT_BLOCKED_PRESALE";
 }): Promise<void> {
   await trackPaymentAttempt({
     email: input.email,

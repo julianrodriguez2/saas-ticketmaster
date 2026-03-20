@@ -46,6 +46,25 @@ enum TicketStatus {
   CANCELLED
 }
 
+enum PresaleAccessType {
+  PUBLIC
+  CODE
+  LINK_ONLY
+}
+
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum BulkImportJobStatus {
+  PENDING
+  VALIDATED
+  COMPLETED
+  FAILED
+  PARTIAL
+}
+
 enum CheckInStatus {
   NOT_CHECKED_IN
   CHECKED_IN
@@ -79,6 +98,7 @@ model User {
   orders         Order[]
   tickets        Ticket[]
   reviewedOrders Order[]  @relation("OrderReviewer")
+  importJobsCreated BulkImportJob[]
 }
 
 model Venue {
@@ -87,6 +107,7 @@ model Venue {
   location  String
   createdAt DateTime @default(now())
   events    Event[]
+  eventTemplates EventTemplate[]
 }
 
 model Event {
@@ -96,10 +117,15 @@ model Event {
   date          DateTime
   venueId       String
   ticketingMode TicketingMode @default(GA)
+  currency      String        @default("USD")
+  salesStartAt  DateTime?
+  salesEndAt    DateTime?
+  publishStatus PublishStatus @default(PUBLISHED)
   createdAt     DateTime      @default(now())
   venue         Venue         @relation(fields: [venueId], references: [id], onDelete: Cascade)
   ticketTiers   TicketTier[]
   seatSections  SeatSection[]
+  presaleRules  PresaleRule[]
   orders        Order[]
   tickets       Ticket[]
   paymentAttempts PaymentAttempt[]
@@ -295,4 +321,94 @@ model SystemEvent {
   @@index([type])
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+model EventTemplate {
+  id               String              @id @default(cuid())
+  name             String
+  description      String?
+  venueId          String?
+  ticketingMode    TicketingMode       @default(GA)
+  defaultCurrency  String              @default("USD")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  venue            Venue?              @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  ticketTiers      TemplateTicketTier[]
+  templatePresales TemplatePresaleRule[]
+}
+
+model TemplateTicketTier {
+  id         String        @id @default(cuid())
+  templateId String
+  name       String
+  price      Decimal       @db.Decimal(10, 2)
+  quantity   Int
+  sortOrder  Int
+  template   EventTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+model TemplatePresaleRule {
+  id                  String            @id @default(cuid())
+  templateId          String
+  name                String
+  startsAtOffsetHours Int?
+  endsAtOffsetHours   Int?
+  accessType          PresaleAccessType
+  accessCode          String?
+  isActive            Boolean           @default(true)
+  template            EventTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+model PresaleRule {
+  id         String            @id @default(cuid())
+  eventId    String
+  name       String
+  startsAt   DateTime
+  endsAt     DateTime
+  accessType PresaleAccessType
+  accessCode String?
+  isActive   Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  event      Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([isActive])
+  @@index([startsAt, endsAt])
+}
+
+model BulkImportJob {
+  id              String              @id @default(cuid())
+  fileName        String
+  createdByUserId String
+  status          BulkImportJobStatus @default(PENDING)
+  totalRows       Int                 @default(0)
+  successRows     Int                 @default(0)
+  failedRows      Int                 @default(0)
+  summaryJson     Json?
+  createdAt       DateTime            @default(now())
+  completedAt     DateTime?
+  createdBy       User                @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  rowErrors       BulkImportRowError[]
+
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BulkImportRowError {
+  id          String        @id @default(cuid())
+  importJobId String
+  rowNumber   Int
+  fieldName   String?
+  message     String
+  rawRowJson  Json?
+  createdAt   DateTime      @default(now())
+  importJob   BulkImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  @@index([importJobId])
+  @@index([rowNumber])
 }

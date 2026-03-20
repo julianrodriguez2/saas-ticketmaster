@@ -7,10 +7,12 @@ import { EventForm } from "../../components/admin/EventForm";
 import { VenueForm } from "../../components/admin/VenueForm";
 import {
   getEvents,
+  getEventTemplates,
   getFlaggedAdminOrders,
   getAdminNotifications,
   getVenues,
   type AdminEventSummary,
+  type EventTemplateSummary,
   type Venue
 } from "../../lib/admin-api";
 import { useAuth } from "../../lib/auth-context";
@@ -20,6 +22,7 @@ export default function AdminDashboardPage() {
   const { user, isLoading } = useAuth();
   const [venues, setVenues] = useState<Venue[]>([]);
   const [events, setEvents] = useState<AdminEventSummary[]>([]);
+  const [templates, setTemplates] = useState<EventTemplateSummary[]>([]);
   const [opsSummary, setOpsSummary] = useState<{
     unreadNotifications: number;
     flaggedOrders: number;
@@ -37,10 +40,17 @@ export default function AdminDashboardPage() {
     setError(null);
 
     try {
-      const [venuesResponse, eventsResponse, unreadNotifications, flaggedOrders] =
+      const [
+        venuesResponse,
+        eventsResponse,
+        templatesResponse,
+        unreadNotifications,
+        flaggedOrders
+      ] =
         await Promise.all([
           getVenues(),
           getEvents(),
+          getEventTemplates(),
           getAdminNotifications({
             unreadOnly: true,
             limit: 200
@@ -53,6 +63,7 @@ export default function AdminDashboardPage() {
 
       setVenues(venuesResponse);
       setEvents(eventsResponse);
+      setTemplates(templatesResponse);
       setOpsSummary({
         unreadNotifications: unreadNotifications.notifications.length,
         flaggedOrders: flaggedOrders.pagination.total
@@ -149,6 +160,18 @@ export default function AdminDashboardPage() {
             >
               Ticket Ops
             </Link>
+            <Link
+              href="/admin/templates"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Templates
+            </Link>
+            <Link
+              href="/admin/imports/events"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Bulk Imports
+            </Link>
             <button
               type="button"
               onClick={() => setShowEventForm((currentValue) => !currentValue)}
@@ -201,7 +224,7 @@ export default function AdminDashboardPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <VenueForm onCreated={loadDashboardData} />
         {showEventForm ? (
-          <EventForm venues={venues} onCreated={loadDashboardData} />
+          <EventForm venues={venues} templates={templates} onCreated={loadDashboardData} />
         ) : (
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <p className="text-sm text-slate-600">
@@ -247,6 +270,12 @@ export default function AdminDashboardPage() {
                     className="inline-flex rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                   >
                     Attendees
+                  </Link>
+                  <Link
+                    href={`/admin/events/${event.id}/presales`}
+                    className="inline-flex rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Presales
                   </Link>
                   {event.ticketingMode === "RESERVED" ? (
                     <Link

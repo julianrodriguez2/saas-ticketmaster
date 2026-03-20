@@ -7,6 +7,10 @@ const createEventSchema = z.object({
   date: z.coerce.date(),
   venueId: z.string().min(1),
   ticketingMode: z.enum(["GA", "RESERVED"]).default("GA"),
+  currency: z.string().trim().length(3).default("USD"),
+  salesStartAt: z.coerce.date().optional(),
+  salesEndAt: z.coerce.date().optional(),
+  publishStatus: z.enum(["DRAFT", "PUBLISHED"]).default("PUBLISHED"),
   ticketTiers: z
     .array(
       z.object({
@@ -16,6 +20,13 @@ const createEventSchema = z.object({
       })
     )
     .default([])
+}).superRefine((payload, context) => {
+  if (payload.salesStartAt && payload.salesEndAt && payload.salesStartAt >= payload.salesEndAt) {
+    context.addIssue({
+      code: "custom",
+      message: "Sales start must be before sales end."
+    });
+  }
 });
 
 const listEventsQuerySchema = z.object({
@@ -28,6 +39,10 @@ const eventListSelect = {
   title: true,
   date: true,
   ticketingMode: true,
+  currency: true,
+  salesStartAt: true,
+  salesEndAt: true,
+  publishStatus: true,
   venue: {
     select: {
       name: true,
@@ -65,6 +80,19 @@ const eventDetailInclude = {
       price: "asc"
     }
   },
+  presaleRules: {
+    orderBy: {
+      startsAt: "asc"
+    },
+    select: {
+      id: true,
+      name: true,
+      startsAt: true,
+      endsAt: true,
+      accessType: true,
+      isActive: true
+    }
+  },
   seatSections: {
     select: {
       id: true
@@ -92,7 +120,18 @@ export async function createEvent(input: unknown) {
     );
   }
 
-  const { title, description, date, venueId, ticketingMode, ticketTiers } =
+  const {
+    title,
+    description,
+    date,
+    venueId,
+    ticketingMode,
+    currency,
+    salesStartAt,
+    salesEndAt,
+    publishStatus,
+    ticketTiers
+  } =
     parsedPayload.data;
 
   if (ticketingMode === "GA" && ticketTiers.length === 0) {
@@ -130,6 +169,10 @@ export async function createEvent(input: unknown) {
         date,
         venueId,
         ticketingMode,
+        currency: currency.toUpperCase(),
+        salesStartAt,
+        salesEndAt,
+        publishStatus,
         ticketTiers:
           ticketingMode === "GA"
             ? {
@@ -178,6 +221,10 @@ export async function listEvents(query: unknown) {
     title: event.title,
     date: event.date,
     ticketingMode: event.ticketingMode,
+    currency: event.currency,
+    salesStartAt: event.salesStartAt,
+    salesEndAt: event.salesEndAt,
+    publishStatus: event.publishStatus,
     venue: event.venue,
     lowestTicketPrice: getLowestTicketPrice({
       ticketingMode: event.ticketingMode,
@@ -206,6 +253,10 @@ export async function listRecommendedEvents() {
     title: event.title,
     date: event.date,
     ticketingMode: event.ticketingMode,
+    currency: event.currency,
+    salesStartAt: event.salesStartAt,
+    salesEndAt: event.salesEndAt,
+    publishStatus: event.publishStatus,
     venue: event.venue,
     lowestTicketPrice: getLowestTicketPrice({
       ticketingMode: event.ticketingMode,
@@ -305,6 +356,10 @@ function mapEventDetail(event: {
   description: string;
   date: Date;
   ticketingMode: TicketingMode;
+  currency: string;
+  salesStartAt: Date | null;
+  salesEndAt: Date | null;
+  publishStatus: "DRAFT" | "PUBLISHED";
   venue: {
     id: string;
     name: string;
@@ -313,6 +368,14 @@ function mapEventDetail(event: {
   };
   seatSections: Array<{
     id: string;
+  }>;
+  presaleRules: Array<{
+    id: string;
+    name: string;
+    startsAt: Date;
+    endsAt: Date;
+    accessType: "PUBLIC" | "CODE" | "LINK_ONLY";
+    isActive: boolean;
   }>;
   ticketTiers: Array<{
     id: string;
@@ -327,7 +390,12 @@ function mapEventDetail(event: {
     description: event.description,
     date: event.date,
     ticketingMode: event.ticketingMode,
+    currency: event.currency,
+    salesStartAt: event.salesStartAt,
+    salesEndAt: event.salesEndAt,
+    publishStatus: event.publishStatus,
     seatMapExists: event.seatSections.length > 0,
+    activePresale: resolveActivePresale(event.presaleRules),
     venue: {
       id: event.venue.id,
       name: event.venue.name,
@@ -339,5 +407,39 @@ function mapEventDetail(event: {
       price: Number(tier.price),
       quantityRemaining: tier.quantity
     }))
+  };
+}
+
+function resolveActivePresale(
+  presales: Array<{
+    id: string;
+    name: string;
+    startsAt: Date;
+    endsAt: Date;
+    accessType: "PUBLIC" | "CODE" | "LINK_ONLY";
+    isActive: boolean;
+  }>
+): {
+  id: string;
+  name: string;
+  startsAt: Date;
+  endsAt: Date;
+  accessType: "PUBLIC" | "CODE" | "LINK_ONLY";
+} | null {
+  const now = new Date();
+  const activePresale = presales.find(
+    (presale) => presale.isActive && presale.startsAt <= now && presale.endsAt >= now
+  );
+
+  if (!activePresale) {
+    return null;
+  }
+
+  return {
+    id: activePresale.id,
+    name: activePresale.name,
+    startsAt: activePresale.startsAt,
+    endsAt: activePresale.endsAt,
+    accessType: activePresale.accessType
   };
 }

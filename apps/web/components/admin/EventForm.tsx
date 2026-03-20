@@ -4,6 +4,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import {
   createEvent,
   type CreateEventInput,
+  type EventTemplateSummary,
+  type PublishStatus,
   type TicketingMode,
   type Venue
 } from "../../lib/admin-api";
@@ -14,6 +16,7 @@ import {
 
 type EventFormProps = {
   venues: Venue[];
+  templates?: EventTemplateSummary[];
   onCreated: () => Promise<void> | void;
 };
 
@@ -23,12 +26,17 @@ const emptyTicketTier: TicketTierDraft = {
   quantity: ""
 };
 
-export function EventForm({ venues, onCreated }: EventFormProps) {
+export function EventForm({ venues, templates = [], onCreated }: EventFormProps) {
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
   const [venueId, setVenueId] = useState("");
   const [ticketingMode, setTicketingMode] = useState<TicketingMode>("GA");
+  const [currency, setCurrency] = useState("USD");
+  const [salesStartAt, setSalesStartAt] = useState("");
+  const [salesEndAt, setSalesEndAt] = useState("");
+  const [publishStatus, setPublishStatus] = useState<PublishStatus>("PUBLISHED");
   const [ticketTiers, setTicketTiers] = useState<TicketTierDraft[]>([
     emptyTicketTier
   ]);
@@ -58,6 +66,46 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
     setTicketTiers((currentTiers) =>
       currentTiers.filter((_tier, tierIndex) => tierIndex !== index)
     );
+  }
+
+  function handleTemplateSelection(nextTemplateId: string): void {
+    setSelectedTemplateId(nextTemplateId);
+
+    if (!nextTemplateId) {
+      return;
+    }
+
+    const selectedTemplate = templates.find((template) => template.id === nextTemplateId);
+
+    if (!selectedTemplate) {
+      return;
+    }
+
+    setTicketingMode(selectedTemplate.ticketingMode);
+    setCurrency(selectedTemplate.defaultCurrency);
+
+    if (selectedTemplate.venue?.id) {
+      setVenueId(selectedTemplate.venue.id);
+    }
+
+    if (!description && selectedTemplate.description) {
+      setDescription(selectedTemplate.description);
+    }
+
+    if (selectedTemplate.ticketingMode === "GA") {
+      setTicketTiers(
+        selectedTemplate.ticketTiers.length > 0
+          ? selectedTemplate.ticketTiers.map((tier) => ({
+              name: tier.name,
+              price: String(tier.price),
+              quantity: String(tier.quantity)
+            }))
+          : [{ ...emptyTicketTier }]
+      );
+      return;
+    }
+
+    setTicketTiers([{ ...emptyTicketTier }]);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -104,6 +152,10 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
         date,
         venueId,
         ticketingMode,
+        currency: currency.trim().toUpperCase(),
+        salesStartAt: salesStartAt || undefined,
+        salesEndAt: salesEndAt || undefined,
+        publishStatus,
         ticketTiers: parsedTicketTiers
       };
 
@@ -112,7 +164,12 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
       setTitle("");
       setDescription("");
       setDate("");
+      setSelectedTemplateId("");
       setTicketingMode("GA");
+      setCurrency("USD");
+      setSalesStartAt("");
+      setSalesEndAt("");
+      setPublishStatus("PUBLISHED");
       setTicketTiers([{ ...emptyTicketTier }]);
       setSuccess(
         createdEvent.ticketingMode === "RESERVED"
@@ -136,6 +193,25 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
       <h2 className="text-xl font-semibold text-slate-900">Create Event</h2>
 
       <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+        <div>
+          <label className="block text-sm font-medium text-slate-700" htmlFor="event-template">
+            Start from Template
+          </label>
+          <select
+            id="event-template"
+            value={selectedTemplateId}
+            onChange={(event) => handleTemplateSelection(event.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
+          >
+            <option value="">No template</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name} ({template.ticketingMode})
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-slate-700" htmlFor="event-title">
             Title
@@ -203,6 +279,64 @@ export function EventForm({ venues, onCreated }: EventFormProps) {
                 ))
               )}
             </select>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-slate-700" htmlFor="event-currency">
+              Currency
+            </label>
+            <input
+              id="event-currency"
+              type="text"
+              maxLength={3}
+              value={currency}
+              onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase outline-none transition focus:border-slate-500"
+              placeholder="USD"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700" htmlFor="event-publish-status">
+              Publish Status
+            </label>
+            <select
+              id="event-publish-status"
+              value={publishStatus}
+              onChange={(event) => setPublishStatus(event.target.value as PublishStatus)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
+            >
+              <option value="PUBLISHED">PUBLISHED</option>
+              <option value="DRAFT">DRAFT</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-slate-700" htmlFor="event-sales-start">
+              Sales Start (optional)
+            </label>
+            <input
+              id="event-sales-start"
+              type="datetime-local"
+              value={salesStartAt}
+              onChange={(event) => setSalesStartAt(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700" htmlFor="event-sales-end">
+              Sales End (optional)
+            </label>
+            <input
+              id="event-sales-end"
+              type="datetime-local"
+              value={salesEndAt}
+              onChange={(event) => setSalesEndAt(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
+            />
           </div>
         </div>
 

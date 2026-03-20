@@ -27,11 +27,15 @@ type CheckoutSelectionPayload =
   | {
       eventId: string;
       seatIds: string[];
+      presaleCode?: string;
+      presaleLinkAccess?: boolean;
     }
   | {
       eventId: string;
       ticketTierId: string;
       quantity: number;
+      presaleCode?: string;
+      presaleLinkAccess?: boolean;
     };
 
 export default function CheckoutPage() {
@@ -52,6 +56,10 @@ export default function CheckoutPage() {
   const seatIds = searchParams.get("seatIds");
   const ticketTierId = searchParams.get("tierId");
   const quantityParam = searchParams.get("quantity");
+  const presaleCode = searchParams.get("presaleCode") ?? "";
+  const presaleLinkAccessParam = searchParams.get("presaleLinkAccess");
+  const presaleLinkAccess =
+    presaleLinkAccessParam === "1" || presaleLinkAccessParam === "true";
 
   const retryQuery = useMemo(() => searchParams.toString(), [searchParams]);
   const cancelRedirectPath = useMemo(
@@ -148,7 +156,9 @@ export default function CheckoutPage() {
             });
             setSelectionPayload({
               eventId: eventDetail.id,
-              seatIds: parsedSeatIds
+              seatIds: parsedSeatIds,
+              presaleCode: presaleCode || undefined,
+              presaleLinkAccess
             });
           }
 
@@ -180,12 +190,14 @@ export default function CheckoutPage() {
             unitPrice: validation.tier.price,
             totalAmount: validation.totalPrice
           });
-          setSelectionPayload({
-            eventId: eventDetail.id,
-            ticketTierId: validation.tier.id,
-            quantity: validation.quantity
-          });
-        }
+            setSelectionPayload({
+              eventId: eventDetail.id,
+              ticketTierId: validation.tier.id,
+              quantity: validation.quantity,
+              presaleCode: presaleCode || undefined,
+              presaleLinkAccess
+            });
+          }
       } catch (checkoutError) {
         if (!isCancelled) {
           setError(
@@ -206,7 +218,7 @@ export default function CheckoutPage() {
     return () => {
       isCancelled = true;
     };
-  }, [eventId, quantityParam, seatIds, ticketTierId]);
+  }, [eventId, presaleCode, presaleLinkAccess, quantityParam, seatIds, ticketTierId]);
 
   useEffect(() => {
     if (isAuthLoading) {
