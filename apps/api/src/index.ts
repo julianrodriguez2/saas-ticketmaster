@@ -17,6 +17,9 @@ async function startServer(): Promise<void> {
   if (!process.env.EMAIL_FROM) {
     console.warn("EMAIL_FROM is not set. Email sender will default to tickets@localhost.");
   }
+  if (!process.env.APP_BASE_URL && !process.env.WEB_ORIGIN) {
+    console.warn("APP_BASE_URL/WEB_ORIGIN is not set. Email links will use localhost defaults.");
+  }
 
   try {
     await prisma.$connect();

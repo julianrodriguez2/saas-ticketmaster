@@ -9,7 +9,7 @@ import {
 const router = Router();
 
 router.get("/", requireAdmin, listAdminNotificationsHandler);
-router.post("/:id/read", requireAdmin, markAdminNotificationReadHandler);
 router.post("/read-all", requireAdmin, markAllAdminNotificationsReadHandler);
+router.post("/:id/read", requireAdmin, markAdminNotificationReadHandler);
 
 export default router;

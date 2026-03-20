@@ -3,6 +3,8 @@ import { prisma, type Role } from "@ticketing/db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
+import { sendWelcomeEmailSafe } from "../email/email.service";
+import { recordSystemEventSafe } from "../system-events/systemEvent.service";
 
 const AUTH_COOKIE_NAME = "ticketing_auth";
 const TOKEN_EXPIRES_IN = "7d";
@@ -81,7 +83,7 @@ export async function registerUser(input: unknown): Promise<AuthUser> {
 
   const hashedPassword = await bcrypt.hash(password, 12);
 
-  return prisma.user.create({
+  const createdUser = await prisma.user.create({
     data: {
       email,
       password: hashedPassword,
@@ -89,6 +91,19 @@ export async function registerUser(input: unknown): Promise<AuthUser> {
     },
     select: authUserSelect
   });
+
+  void sendWelcomeEmailSafe({
+    to: createdUser.email
+  });
+
+  void recordSystemEventSafe({
+    type: "USER_REGISTERED",
+    entityType: "USER",
+    entityId: createdUser.id,
+    message: `User ${createdUser.email} registered.`
+  });
+
+  return createdUser;
 }
 
 export async function loginUser(

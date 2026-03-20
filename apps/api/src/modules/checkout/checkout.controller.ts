@@ -7,7 +7,18 @@ export async function createCheckoutSessionHandler(
   next: NextFunction
 ): Promise<void> {
   try {
-    const session = await createCheckoutSession(req.body, req.user?.userId);
+    const forwardedFor = req.headers["x-forwarded-for"];
+    const forwardedIp =
+      typeof forwardedFor === "string"
+        ? forwardedFor.split(",")[0]?.trim()
+        : Array.isArray(forwardedFor)
+          ? forwardedFor[0]
+          : undefined;
+
+    const session = await createCheckoutSession(req.body, req.user?.userId, {
+      ipAddress: forwardedIp ?? req.ip ?? null,
+      userAgent: req.get("user-agent") ?? null
+    });
     res.status(201).json({ session });
   } catch (error) {
     if (error instanceof CheckoutServiceError) {

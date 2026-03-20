@@ -5,6 +5,8 @@ export type SeatStatus = "AVAILABLE" | "RESERVED" | "SOLD" | "BLOCKED";
 export type OrderStatus = "PENDING" | "PAID" | "FAILED";
 export type TicketStatus = "ACTIVE" | "USED" | "CANCELLED";
 export type CheckInStatus = "NOT_CHECKED_IN" | "CHECKED_IN";
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
+export type NotificationSeverity = "INFO" | "WARNING" | "CRITICAL";
 
 export type Venue = {
   id: string;
@@ -200,6 +202,10 @@ export type AdminOrderListItem = {
   status: OrderStatus;
   createdAt: string;
   ticketCount: number;
+  riskLevel: RiskLevel;
+  fraudFlags: string[];
+  flaggedAt: string | null;
+  reviewedAt: string | null;
 };
 
 export type AdminOrderListResponse = {
@@ -218,9 +224,22 @@ export type AdminOrderDetail = {
   totalAmount: number;
   createdAt: string;
   email: string | null;
+  riskLevel: RiskLevel;
+  fraudFlags: string[];
+  flaggedAt: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
   customer: {
     userId: string | null;
     email: string | null;
+  };
+  review: {
+    reviewedAt: string | null;
+    reviewNotes: string | null;
+    reviewedBy: {
+      id: string;
+      email: string;
+    } | null;
   };
   event: {
     id: string;
@@ -236,8 +255,27 @@ export type AdminOrderDetail = {
     status: "PENDING" | "SUCCESS" | "FAILED";
     paymentIntentId: string;
     amount: number;
+    providerResponseCode: string | null;
+    failureReason: string | null;
     createdAt: string;
   } | null;
+  paymentAttempts: Array<{
+    id: string;
+    status: "STARTED" | "FAILED" | "SUCCEEDED" | "BLOCKED";
+    reason: string | null;
+    email: string | null;
+    ipAddress: string | null;
+    createdAt: string;
+  }>;
+  notifications: Array<{
+    id: string;
+    type: string;
+    severity: NotificationSeverity;
+    title: string;
+    message: string;
+    readAt: string | null;
+    createdAt: string;
+  }>;
   tickets: Array<{
     id: string;
     code: string;
@@ -271,6 +309,23 @@ export type AdminOrderDetail = {
       name: string;
     } | null;
   }>;
+};
+
+export type AdminNotification = {
+  id: string;
+  type: string;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  relatedOrderId: string | null;
+  relatedEventId: string | null;
+  relatedTicketId: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type AdminNotificationListResponse = {
+  notifications: AdminNotification[];
 };
 
 export type AdminAttendee = {
@@ -441,6 +496,10 @@ export type AdminOrdersQuery = {
   limit?: number;
 };
 
+export type AdminFlaggedOrdersQuery = AdminOrdersQuery & {
+  riskLevel?: Extract<RiskLevel, "MEDIUM" | "HIGH">;
+};
+
 export async function getAdminOrders(
   query: AdminOrdersQuery = {}
 ): Promise<AdminOrderListResponse> {
@@ -469,6 +528,42 @@ export async function getAdminOrders(
   const path = params.toString()
     ? `/admin/orders?${params.toString()}`
     : "/admin/orders";
+
+  return apiRequest<AdminOrderListResponse>(path);
+}
+
+export async function getFlaggedAdminOrders(
+  query: AdminFlaggedOrdersQuery = {}
+): Promise<AdminOrderListResponse> {
+  const params = new URLSearchParams();
+
+  if (query.eventId) {
+    params.set("eventId", query.eventId);
+  }
+
+  if (query.status) {
+    params.set("status", query.status);
+  }
+
+  if (query.riskLevel) {
+    params.set("riskLevel", query.riskLevel);
+  }
+
+  if (query.search && query.search.trim()) {
+    params.set("search", query.search.trim());
+  }
+
+  if (query.page) {
+    params.set("page", String(query.page));
+  }
+
+  if (query.limit) {
+    params.set("limit", String(query.limit));
+  }
+
+  const path = params.toString()
+    ? `/admin/orders/flagged?${params.toString()}`
+    : "/admin/orders/flagged";
 
   return apiRequest<AdminOrderListResponse>(path);
 }
@@ -530,6 +625,32 @@ export async function getAdminOrderById(orderId: string): Promise<AdminOrderDeta
   );
 
   return response.order;
+}
+
+export async function reviewAdminOrder(
+  orderId: string,
+  reviewNotes?: string
+): Promise<{
+  id: string;
+  reviewedAt: string | null;
+  reviewNotes: string | null;
+  reviewedByUserId: string | null;
+}> {
+  const response = await apiRequest<{
+    review: {
+      id: string;
+      reviewedAt: string | null;
+      reviewNotes: string | null;
+      reviewedByUserId: string | null;
+    };
+  }>(`/admin/orders/${orderId}/review`, {
+    method: "POST",
+    body: {
+      reviewNotes
+    }
+  });
+
+  return response.review;
 }
 
 type AdminAttendeesQuery = {
@@ -651,4 +772,59 @@ export async function checkInAdminTicket(ticketId: string): Promise<{
   });
 
   return response.ticket;
+}
+
+export async function getAdminNotifications(query?: {
+  unreadOnly?: boolean;
+  severity?: NotificationSeverity;
+  type?: string;
+  limit?: number;
+}): Promise<AdminNotificationListResponse> {
+  const params = new URLSearchParams();
+
+  if (query?.unreadOnly) {
+    params.set("unreadOnly", "true");
+  }
+
+  if (query?.severity) {
+    params.set("severity", query.severity);
+  }
+
+  if (query?.type) {
+    params.set("type", query.type);
+  }
+
+  if (query?.limit) {
+    params.set("limit", String(query.limit));
+  }
+
+  const path = params.toString()
+    ? `/admin/notifications?${params.toString()}`
+    : "/admin/notifications";
+
+  return apiRequest<AdminNotificationListResponse>(path);
+}
+
+export async function markAdminNotificationRead(notificationId: string): Promise<{
+  id: string;
+  readAt: string | null;
+}> {
+  const response = await apiRequest<{
+    notification: {
+      id: string;
+      readAt: string | null;
+    };
+  }>(`/admin/notifications/${notificationId}/read`, {
+    method: "POST"
+  });
+
+  return response.notification;
+}
+
+export async function markAllAdminNotificationsRead(): Promise<{
+  count: number;
+}> {
+  return apiRequest<{ count: number }>("/admin/notifications/read-all", {
+    method: "POST"
+  });
 }

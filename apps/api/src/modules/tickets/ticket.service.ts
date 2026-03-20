@@ -7,6 +7,8 @@ import {
   type TicketStatus
 } from "@ticketing/db";
 import QRCode from "qrcode";
+import { createAdminNotificationSafe } from "../admin-notifications/adminNotification.service";
+import { recordSystemEvent, recordSystemEventSafe } from "../system-events/systemEvent.service";
 
 const generateTicketCode = customAlphabet("23456789ABCDEFGHJKLMNPQRSTUVWXYZ", 10);
 
@@ -128,6 +130,19 @@ export async function issueTicketsForOrder(orderId: string): Promise<{
         issuedAt: "asc"
       }
     });
+
+    await recordSystemEvent(
+      {
+        type: "TICKET_ISSUED",
+        entityType: "ORDER",
+        entityId: order.id,
+        message: `Issued ${issuedTickets.length} ticket(s) for order ${order.id}.`,
+        metadata: {
+          ticketCount: issuedTickets.length
+        }
+      },
+      transaction
+    );
 
     return {
       orderId,
@@ -431,53 +446,127 @@ export async function checkInTicket(ticketId: string): Promise<{
   checkInStatus: CheckInStatus;
   checkedInAt: Date | null;
 }> {
-  return prisma.$transaction(async (transaction) => {
-    const ticket = await transaction.ticket.findUnique({
-      where: {
-        id: ticketId
-      },
-      select: {
-        id: true,
-        code: true,
-        status: true,
-        checkInStatus: true,
-        checkedInAt: true
-      }
-    });
-
-    if (!ticket) {
-      throw new TicketServiceError(404, "Ticket not found.");
+  const ticket = await prisma.ticket.findUnique({
+    where: {
+      id: ticketId
+    },
+    select: {
+      id: true,
+      code: true,
+      status: true,
+      checkInStatus: true,
+      checkedInAt: true,
+      eventId: true
     }
-
-    if (ticket.status !== "ACTIVE") {
-      throw new TicketServiceError(409, "Only active tickets can be checked in.");
-    }
-
-    if (ticket.checkInStatus === "CHECKED_IN") {
-      throw new TicketServiceError(409, "Ticket has already been checked in.");
-    }
-
-    const checkedInAt = new Date();
-
-    const updatedTicket = await transaction.ticket.update({
-      where: {
-        id: ticket.id
-      },
-      data: {
-        checkInStatus: "CHECKED_IN",
-        checkedInAt
-      },
-      select: {
-        id: true,
-        code: true,
-        status: true,
-        checkInStatus: true,
-        checkedInAt: true
-      }
-    });
-
-    return updatedTicket;
   });
+
+  if (!ticket) {
+    throw new TicketServiceError(404, "Ticket not found.");
+  }
+
+  if (ticket.status !== "ACTIVE") {
+    await createAdminNotificationSafe({
+      type: "CHECKIN_BLOCKED_INVALID_STATUS",
+      severity: "WARNING",
+      title: "Ticket check-in blocked",
+      message: `Ticket ${ticket.code} cannot be checked in because status is ${ticket.status}.`,
+      relatedTicketId: ticket.id,
+      relatedEventId: ticket.eventId,
+      dedupeKey: `checkin-invalid-status:${ticket.id}:${new Date().toISOString().slice(0, 13)}`
+    });
+
+    await recordSystemEventSafe({
+      type: "CHECKIN_BLOCKED_INVALID_STATUS",
+      entityType: "TICKET",
+      entityId: ticket.id,
+      message: "Check-in blocked because ticket status is not ACTIVE.",
+      metadata: {
+        status: ticket.status
+      }
+    });
+    throw new TicketServiceError(409, "Only active tickets can be checked in.");
+  }
+
+  if (ticket.checkInStatus === "CHECKED_IN") {
+    await createAdminNotificationSafe({
+      type: "DOUBLE_CHECKIN_BLOCKED",
+      severity: "WARNING",
+      title: "Duplicate check-in blocked",
+      message: `Ticket ${ticket.code} was already checked in.`,
+      relatedTicketId: ticket.id,
+      relatedEventId: ticket.eventId,
+      dedupeKey: `double-checkin:${ticket.id}:${new Date().toISOString().slice(0, 13)}`
+    });
+
+    await recordSystemEventSafe({
+      type: "DOUBLE_CHECKIN_BLOCKED",
+      entityType: "TICKET",
+      entityId: ticket.id,
+      message: `Duplicate check-in blocked for ticket ${ticket.code}.`
+    });
+
+    throw new TicketServiceError(409, "Ticket has already been checked in.");
+  }
+
+  const checkedInAt = new Date();
+  const updateResult = await prisma.ticket.updateMany({
+    where: {
+      id: ticket.id,
+      status: "ACTIVE",
+      checkInStatus: "NOT_CHECKED_IN"
+    },
+    data: {
+      checkInStatus: "CHECKED_IN",
+      checkedInAt
+    }
+  });
+
+  if (updateResult.count !== 1) {
+    await createAdminNotificationSafe({
+      type: "DOUBLE_CHECKIN_BLOCKED",
+      severity: "WARNING",
+      title: "Duplicate check-in blocked",
+      message: `Ticket ${ticket.code} could not be checked in due to a concurrent update.`,
+      relatedTicketId: ticket.id,
+      relatedEventId: ticket.eventId,
+      dedupeKey: `double-checkin-race:${ticket.id}:${new Date().toISOString().slice(0, 13)}`
+    });
+
+    await recordSystemEventSafe({
+      type: "DOUBLE_CHECKIN_BLOCKED",
+      entityType: "TICKET",
+      entityId: ticket.id,
+      message: `Check-in race prevented duplicate check-in for ticket ${ticket.code}.`
+    });
+
+    throw new TicketServiceError(409, "Ticket has already been checked in.");
+  }
+
+  const updatedTicket = await prisma.ticket.findUnique({
+    where: {
+      id: ticket.id
+    },
+    select: {
+      id: true,
+      code: true,
+      status: true,
+      checkInStatus: true,
+      checkedInAt: true
+    }
+  });
+
+  if (!updatedTicket) {
+    throw new TicketServiceError(404, "Ticket not found after check-in.");
+  }
+
+  await recordSystemEventSafe({
+    type: "TICKET_CHECKED_IN",
+    entityType: "TICKET",
+    entityId: updatedTicket.id,
+    message: `Ticket ${updatedTicket.code} checked in successfully.`
+  });
+
+  return updatedTicket;
 }
 
 async function createTicketWithUniqueCode(

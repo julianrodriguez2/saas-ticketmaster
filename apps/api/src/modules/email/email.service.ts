@@ -1,8 +1,16 @@
 import nodemailer from "nodemailer";
+import { renderEmailTemplate } from "./email.templates";
+import type { EmailTemplateMap, EmailTemplateName } from "./email.types";
 
 let cachedTransporter: nodemailer.Transporter | null = null;
 
-type OrderConfirmationEmailInput = {
+type SendTemplateEmailInput<TTemplateName extends EmailTemplateName> = {
+  to: string;
+  template: TTemplateName;
+  payload: EmailTemplateMap[TTemplateName];
+};
+
+type SendOrderConfirmationEmailInput = {
   to: string;
   orderId: string;
   eventTitle: string;
@@ -13,46 +21,128 @@ type OrderConfirmationEmailInput = {
   ticketCount: number;
 };
 
-export async function sendOrderConfirmationEmail(
-  input: OrderConfirmationEmailInput
+type SendPaymentFailureEmailInput = {
+  to: string;
+  orderId: string;
+  eventTitle?: string;
+  failureReason?: string;
+};
+
+export async function sendTemplateEmail<TTemplateName extends EmailTemplateName>(
+  input: SendTemplateEmailInput<TTemplateName>
 ): Promise<void> {
   const transporter = await getTransporter();
-  const appOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
   const fromAddress = process.env.EMAIL_FROM ?? "tickets@localhost";
-  const orderUrl = `${appOrigin}/orders/${input.orderId}`;
+  const appBaseUrl = process.env.APP_BASE_URL ?? process.env.WEB_ORIGIN ?? "http://localhost:3000";
+  const renderedTemplate = renderEmailTemplate(input.template, input.payload, {
+    appBaseUrl
+  });
 
-  const message = {
+  const mailResult = await transporter.sendMail({
     from: fromAddress,
     to: input.to,
-    subject: `Your tickets for ${input.eventTitle}`,
-    text: [
-      `Thanks for your order ${input.orderId}.`,
-      "",
-      `Event: ${input.eventTitle}`,
-      `Date: ${input.eventDate.toLocaleString()}`,
-      `Venue: ${input.venueName} (${input.venueLocation})`,
-      `Total: $${input.totalAmount.toFixed(2)}`,
-      `Ticket count: ${input.ticketCount}`,
-      "",
-      `View your order: ${orderUrl}`
-    ].join("\n"),
-    html: `
-      <h2>Thanks for your order</h2>
-      <p>Order reference: <strong>${input.orderId}</strong></p>
-      <p>Event: <strong>${input.eventTitle}</strong></p>
-      <p>Date: ${input.eventDate.toLocaleString()}</p>
-      <p>Venue: ${input.venueName} (${input.venueLocation})</p>
-      <p>Total: <strong>$${input.totalAmount.toFixed(2)}</strong></p>
-      <p>Ticket count: <strong>${input.ticketCount}</strong></p>
-      <p><a href="${orderUrl}">View your order and tickets</a></p>
-    `
-  };
-
-  const info = await transporter.sendMail(message);
+    subject: renderedTemplate.subject,
+    text: renderedTemplate.text,
+    html: renderedTemplate.html
+  });
 
   if (process.env.NODE_ENV !== "production") {
-    console.info(`Order confirmation email sent: ${info.messageId}`);
+    console.info(`Email sent (${input.template}): ${mailResult.messageId}`);
   }
+}
+
+export async function sendTemplateEmailSafe<TTemplateName extends EmailTemplateName>(
+  input: SendTemplateEmailInput<TTemplateName>
+): Promise<void> {
+  try {
+    await sendTemplateEmail(input);
+  } catch (error) {
+    console.error(`Email send failed for template ${input.template}.`, error);
+  }
+}
+
+export async function sendWelcomeEmail(input: { to: string }): Promise<void> {
+  await sendTemplateEmail({
+    to: input.to,
+    template: "welcome",
+    payload: {
+      userEmail: input.to
+    }
+  });
+}
+
+export async function sendWelcomeEmailSafe(input: { to: string }): Promise<void> {
+  await sendTemplateEmailSafe({
+    to: input.to,
+    template: "welcome",
+    payload: {
+      userEmail: input.to
+    }
+  });
+}
+
+export async function sendOrderConfirmationEmail(
+  input: SendOrderConfirmationEmailInput
+): Promise<void> {
+  await sendTemplateEmail({
+    to: input.to,
+    template: "order-confirmation",
+    payload: {
+      orderId: input.orderId,
+      eventTitle: input.eventTitle,
+      eventDate: input.eventDate,
+      venueName: input.venueName,
+      venueLocation: input.venueLocation,
+      totalAmount: input.totalAmount,
+      ticketCount: input.ticketCount
+    }
+  });
+}
+
+export async function sendOrderConfirmationEmailSafe(
+  input: SendOrderConfirmationEmailInput
+): Promise<void> {
+  await sendTemplateEmailSafe({
+    to: input.to,
+    template: "order-confirmation",
+    payload: {
+      orderId: input.orderId,
+      eventTitle: input.eventTitle,
+      eventDate: input.eventDate,
+      venueName: input.venueName,
+      venueLocation: input.venueLocation,
+      totalAmount: input.totalAmount,
+      ticketCount: input.ticketCount
+    }
+  });
+}
+
+export async function sendPaymentFailureEmail(
+  input: SendPaymentFailureEmailInput
+): Promise<void> {
+  await sendTemplateEmail({
+    to: input.to,
+    template: "payment-failure",
+    payload: {
+      orderId: input.orderId,
+      eventTitle: input.eventTitle,
+      failureReason: input.failureReason
+    }
+  });
+}
+
+export async function sendPaymentFailureEmailSafe(
+  input: SendPaymentFailureEmailInput
+): Promise<void> {
+  await sendTemplateEmailSafe({
+    to: input.to,
+    template: "payment-failure",
+    payload: {
+      orderId: input.orderId,
+      eventTitle: input.eventTitle,
+      failureReason: input.failureReason
+    }
+  });
 }
 
 async function getTransporter(): Promise<nodemailer.Transporter> {
@@ -65,21 +155,17 @@ async function getTransporter(): Promise<nodemailer.Transporter> {
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
 
-  if (smtpHost && smtpPort > 0 && smtpUser && smtpPass) {
+  if (smtpHost && smtpPort > 0) {
     cachedTransporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: smtpPort === 465,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      }
+      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined
     });
 
     return cachedTransporter;
   }
 
-  // Dev fallback transport writes emails to JSON output in logs.
   cachedTransporter = nodemailer.createTransport({
     jsonTransport: true
   });

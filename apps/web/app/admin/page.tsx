@@ -7,6 +7,8 @@ import { EventForm } from "../../components/admin/EventForm";
 import { VenueForm } from "../../components/admin/VenueForm";
 import {
   getEvents,
+  getFlaggedAdminOrders,
+  getAdminNotifications,
   getVenues,
   type AdminEventSummary,
   type Venue
@@ -18,6 +20,13 @@ export default function AdminDashboardPage() {
   const { user, isLoading } = useAuth();
   const [venues, setVenues] = useState<Venue[]>([]);
   const [events, setEvents] = useState<AdminEventSummary[]>([]);
+  const [opsSummary, setOpsSummary] = useState<{
+    unreadNotifications: number;
+    flaggedOrders: number;
+  }>({
+    unreadNotifications: 0,
+    flaggedOrders: 0
+  });
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showEventForm, setShowEventForm] = useState(false);
@@ -28,13 +37,26 @@ export default function AdminDashboardPage() {
     setError(null);
 
     try {
-      const [venuesResponse, eventsResponse] = await Promise.all([
-        getVenues(),
-        getEvents()
-      ]);
+      const [venuesResponse, eventsResponse, unreadNotifications, flaggedOrders] =
+        await Promise.all([
+          getVenues(),
+          getEvents(),
+          getAdminNotifications({
+            unreadOnly: true,
+            limit: 200
+          }),
+          getFlaggedAdminOrders({
+            page: 1,
+            limit: 1
+          })
+        ]);
 
       setVenues(venuesResponse);
       setEvents(eventsResponse);
+      setOpsSummary({
+        unreadNotifications: unreadNotifications.notifications.length,
+        flaggedOrders: flaggedOrders.pagination.total
+      });
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -110,6 +132,18 @@ export default function AdminDashboardPage() {
               Orders
             </Link>
             <Link
+              href="/admin/orders/flagged"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Flagged Orders
+            </Link>
+            <Link
+              href="/admin/notifications"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Notifications
+            </Link>
+            <Link
               href="/admin/tickets"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
@@ -131,6 +165,38 @@ export default function AdminDashboardPage() {
           <p className="text-sm text-rose-600">{error}</p>
         </section>
       ) : null}
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Unread Notifications
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">
+            {opsSummary.unreadNotifications}
+          </p>
+          <Link
+            href="/admin/notifications"
+            className="mt-3 inline-flex rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            Open Notifications
+          </Link>
+        </article>
+
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Flagged Orders
+          </p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">
+            {opsSummary.flaggedOrders}
+          </p>
+          <Link
+            href="/admin/orders/flagged"
+            className="mt-3 inline-flex rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            Review Flagged Orders
+          </Link>
+        </article>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <VenueForm onCreated={loadDashboardData} />

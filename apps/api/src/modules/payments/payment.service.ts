@@ -1,10 +1,33 @@
 import { prisma, type Prisma } from "@ticketing/db";
 import Stripe from "stripe";
-import { sendOrderConfirmationEmail } from "../email/email.service";
+import { createAdminNotificationSafe } from "../admin-notifications/adminNotification.service";
+import {
+  sendOrderConfirmationEmailSafe,
+  sendPaymentFailureEmailSafe
+} from "../email/email.service";
+import { trackPaymentAttempt } from "../fraud/fraud.service";
 import { getOrderEmailAndSummary } from "../orders/order.service";
+import { recordSystemEventSafe } from "../system-events/systemEvent.service";
 import { issueTicketsForOrder } from "../tickets/ticket.service";
 
 let stripeClient: Stripe | null = null;
+
+type FinalizedOrderResult =
+  | {
+      status: "PAID";
+      orderId: string;
+      eventId: string;
+      newlyPaid: boolean;
+      email: string | null;
+      ipAddress: string | null;
+    }
+  | {
+      status: "FAILED_INVENTORY";
+      orderId: string;
+      eventId: string;
+      email: string | null;
+      ipAddress: string | null;
+    };
 
 export class PaymentServiceError extends Error {
   public readonly statusCode: number;
@@ -95,59 +118,161 @@ export async function recordStripePayment(input: {
 export async function handleStripePaymentIntentSucceeded(
   paymentIntent: Stripe.PaymentIntent
 ): Promise<void> {
-  const finalizedPayment = await finalizeOrderPayment(paymentIntent.id);
+  const finalizedOrder = await finalizeOrderPayment(paymentIntent.id);
 
-  if (!finalizedPayment) {
+  if (!finalizedOrder) {
     return;
   }
 
-  const issuance = await issueTicketsForOrder(finalizedPayment.orderId);
+  if (finalizedOrder.status === "FAILED_INVENTORY") {
+    await createAdminNotificationSafe({
+      type: "SEAT_OVERSELL_BLOCKED",
+      severity: "CRITICAL",
+      title: "Inventory safeguard blocked fulfillment",
+      message: `Order ${finalizedOrder.orderId} failed final inventory validation after payment confirmation.`,
+      relatedOrderId: finalizedOrder.orderId,
+      relatedEventId: finalizedOrder.eventId,
+      dedupeKey: `finalize-inventory-failed:${finalizedOrder.orderId}`
+    });
 
-  if (finalizedPayment.newlyPaid || !issuance.alreadyIssued) {
-    try {
-      await sendOrderConfirmationForOrder(finalizedPayment.orderId, issuance.ticketCount);
-    } catch (error) {
-      console.error("Order confirmation email failed.", error);
+    await recordSystemEventSafe({
+      type: "INVENTORY_VALIDATION_FAILED",
+      entityType: "ORDER",
+      entityId: finalizedOrder.orderId,
+      message: "Order fulfillment failed because inventory was unavailable at payment finalization.",
+      metadata: {
+        paymentIntentId: paymentIntent.id
+      }
+    });
+
+    await trackPaymentAttempt({
+      email: finalizedOrder.email,
+      ipAddress: finalizedOrder.ipAddress,
+      eventId: finalizedOrder.eventId,
+      status: "FAILED",
+      reason: "Inventory unavailable at payment finalization."
+    });
+
+    return;
+  }
+
+  await trackPaymentAttempt({
+    email: finalizedOrder.email,
+    ipAddress: finalizedOrder.ipAddress,
+    eventId: finalizedOrder.eventId,
+    status: "SUCCEEDED",
+    reason: "Stripe payment intent succeeded."
+  });
+
+  await recordSystemEventSafe({
+    type: "PAYMENT_SUCCEEDED",
+    entityType: "ORDER",
+    entityId: finalizedOrder.orderId,
+    message: `Stripe payment intent ${paymentIntent.id} succeeded.`,
+    metadata: {
+      paymentIntentId: paymentIntent.id,
+      newlyPaid: finalizedOrder.newlyPaid
     }
+  });
+
+  const issuance = await issueTicketsForOrder(finalizedOrder.orderId);
+
+  if (finalizedOrder.newlyPaid || !issuance.alreadyIssued) {
+    await sendOrderConfirmationForOrder(finalizedOrder.orderId, issuance.ticketCount);
   }
 }
 
 export async function handleStripePaymentIntentFailed(
   paymentIntent: Stripe.PaymentIntent
 ): Promise<void> {
-  await prisma.$transaction(async (transaction) => {
+  const lastPaymentError = paymentIntent.last_payment_error;
+  const failureReason =
+    lastPaymentError?.message ?? "Payment was declined by the payment provider.";
+  const providerResponseCode = lastPaymentError?.code ?? null;
+
+  const failedPayment = await prisma.$transaction(async (transaction) => {
     const payment = await transaction.payment.findUnique({
       where: {
         paymentIntentId: paymentIntent.id
       },
       include: {
         order: {
-          select: {
-            id: true,
-            status: true
+          include: {
+            event: {
+              select: {
+                id: true,
+                title: true
+              }
+            },
+            user: {
+              select: {
+                email: true
+              }
+            }
           }
         }
       }
     });
 
     if (!payment) {
-      return;
+      return null;
     }
 
     if (payment.status === "SUCCESS" || payment.order.status === "PAID") {
-      return;
+      return null;
     }
 
-    await markOrderAndPaymentFailed(transaction, payment.order.id, payment.id);
+    await markOrderAndPaymentFailed(transaction, payment.order.id, payment.id, {
+      failureReason,
+      providerResponseCode
+    });
+
+    return {
+      orderId: payment.order.id,
+      eventId: payment.order.event.id,
+      eventTitle: payment.order.event.title,
+      email: payment.order.email ?? payment.order.user?.email ?? null,
+      ipAddress: payment.order.ipAddress
+    };
   });
+
+  if (!failedPayment) {
+    return;
+  }
+
+  await trackPaymentAttempt({
+    email: failedPayment.email,
+    ipAddress: failedPayment.ipAddress,
+    eventId: failedPayment.eventId,
+    status: "FAILED",
+    reason: failureReason.slice(0, 280)
+  });
+
+  await recordSystemEventSafe({
+    type: "PAYMENT_FAILED",
+    entityType: "ORDER",
+    entityId: failedPayment.orderId,
+    message: `Stripe payment intent ${paymentIntent.id} failed.`,
+    metadata: {
+      paymentIntentId: paymentIntent.id,
+      failureReason,
+      providerResponseCode
+    }
+  });
+
+  if (failedPayment.email) {
+    await sendPaymentFailureEmailSafe({
+      to: failedPayment.email,
+      orderId: failedPayment.orderId,
+      eventTitle: failedPayment.eventTitle,
+      failureReason
+    });
+  }
 }
 
 export async function finalizeOrderPayment(
   paymentIntentId: string
-): Promise<{
-  orderId: string;
-  newlyPaid: boolean;
-} | null> {
+): Promise<FinalizedOrderResult | null> {
   return prisma.$transaction(async (transaction) => {
     const payment = await transaction.payment.findUnique({
       where: {
@@ -160,6 +285,11 @@ export async function finalizeOrderPayment(
               select: {
                 id: true,
                 ticketingMode: true
+              }
+            },
+            user: {
+              select: {
+                email: true
               }
             }
           }
@@ -175,10 +305,16 @@ export async function finalizeOrderPayment(
       return null;
     }
 
+    const orderEmail = payment.order.email ?? payment.order.user?.email ?? null;
+
     if (payment.status === "SUCCESS" && payment.order.status === "PAID") {
       return {
+        status: "PAID",
         orderId: payment.order.id,
-        newlyPaid: false
+        eventId: payment.order.event.id,
+        newlyPaid: false,
+        email: orderEmail,
+        ipAddress: payment.order.ipAddress
       };
     }
 
@@ -202,8 +338,12 @@ export async function finalizeOrderPayment(
       });
 
       return {
+        status: "PAID",
         orderId: payment.order.id,
-        newlyPaid: false
+        eventId: payment.order.event.id,
+        newlyPaid: false,
+        email: orderEmail,
+        ipAddress: payment.order.ipAddress
       };
     }
 
@@ -213,8 +353,18 @@ export async function finalizeOrderPayment(
         : await fulfillGAOrder(transaction, payment.order.id, payment.order.event.id);
 
     if (!canFulfill) {
-      await markOrderAndPaymentFailed(transaction, payment.order.id, payment.id);
-      return null;
+      await markOrderAndPaymentFailed(transaction, payment.order.id, payment.id, {
+        failureReason: "Inventory unavailable during finalization.",
+        providerResponseCode: "INVENTORY_VALIDATION_FAILED"
+      });
+
+      return {
+        status: "FAILED_INVENTORY",
+        orderId: payment.order.id,
+        eventId: payment.order.event.id,
+        email: orderEmail,
+        ipAddress: payment.order.ipAddress
+      };
     }
 
     await transaction.order.update({
@@ -236,8 +386,12 @@ export async function finalizeOrderPayment(
     });
 
     return {
+      status: "PAID",
       orderId: payment.order.id,
-      newlyPaid: true
+      eventId: payment.order.event.id,
+      newlyPaid: true,
+      email: orderEmail,
+      ipAddress: payment.order.ipAddress
     };
   });
 }
@@ -252,7 +406,7 @@ async function sendOrderConfirmationForOrder(
     return;
   }
 
-  await sendOrderConfirmationEmail({
+  await sendOrderConfirmationEmailSafe({
     to: orderSummary.email,
     orderId,
     eventTitle: orderSummary.eventTitle,
@@ -393,7 +547,11 @@ async function fulfillGAOrder(
 async function markOrderAndPaymentFailed(
   transaction: Prisma.TransactionClient,
   orderId: string,
-  paymentId: string
+  paymentId: string,
+  input: {
+    failureReason: string;
+    providerResponseCode?: string | null;
+  }
 ): Promise<void> {
   await transaction.order.update({
     where: {
@@ -409,7 +567,9 @@ async function markOrderAndPaymentFailed(
       id: paymentId
     },
     data: {
-      status: "FAILED"
+      status: "FAILED",
+      failureReason: input.failureReason.slice(0, 500),
+      providerResponseCode: input.providerResponseCode ?? undefined
     }
   });
 }

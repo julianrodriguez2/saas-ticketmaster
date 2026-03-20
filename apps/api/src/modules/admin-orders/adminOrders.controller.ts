@@ -3,7 +3,9 @@ import {
   AdminOrdersServiceError,
   exportAdminOrdersCsv,
   getAdminOrderById,
-  listAdminOrders
+  listAdminOrders,
+  listFlaggedAdminOrders,
+  reviewAdminOrder
 } from "./adminOrders.service";
 
 export async function listAdminOrdersHandler(
@@ -15,12 +17,20 @@ export async function listAdminOrdersHandler(
     const result = await listAdminOrders(req.query);
     res.status(200).json(result);
   } catch (error) {
-    if (error instanceof AdminOrdersServiceError) {
-      res.status(error.statusCode).json({ message: error.message });
-      return;
-    }
+    handleAdminOrdersError(error, res, next);
+  }
+}
 
-    next(error);
+export async function listFlaggedAdminOrdersHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const result = await listFlaggedAdminOrders(req.query);
+    res.status(200).json(result);
+  } catch (error) {
+    handleAdminOrdersError(error, res, next);
   }
 }
 
@@ -33,12 +43,25 @@ export async function getAdminOrderByIdHandler(
     const order = await getAdminOrderById(req.params.id);
     res.status(200).json({ order });
   } catch (error) {
-    if (error instanceof AdminOrdersServiceError) {
-      res.status(error.statusCode).json({ message: error.message });
-      return;
-    }
+    handleAdminOrdersError(error, res, next);
+  }
+}
 
-    next(error);
+export async function reviewAdminOrderHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ message: "Authentication required." });
+    return;
+  }
+
+  try {
+    const review = await reviewAdminOrder(req.params.id, req.user.userId, req.body);
+    res.status(200).json({ review });
+  } catch (error) {
+    handleAdminOrdersError(error, res, next);
   }
 }
 
@@ -50,17 +73,22 @@ export async function exportAdminOrdersCsvHandler(
   try {
     const result = await exportAdminOrdersCsv(req.query);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${result.filename}"`
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
     res.status(200).send(result.csv);
   } catch (error) {
-    if (error instanceof AdminOrdersServiceError) {
-      res.status(error.statusCode).json({ message: error.message });
-      return;
-    }
-
-    next(error);
+    handleAdminOrdersError(error, res, next);
   }
+}
+
+function handleAdminOrdersError(
+  error: unknown,
+  res: Response,
+  next: NextFunction
+): void {
+  if (error instanceof AdminOrdersServiceError) {
+    res.status(error.statusCode).json({ message: error.message });
+    return;
+  }
+
+  next(error);
 }
