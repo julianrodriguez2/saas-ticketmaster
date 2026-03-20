@@ -433,7 +433,7 @@ export async function getAdminSalesVelocity(eventId?: string): Promise<AdminSale
   return response.velocity;
 }
 
-type AdminOrdersQuery = {
+export type AdminOrdersQuery = {
   eventId?: string;
   status?: OrderStatus;
   search?: string;
@@ -471,6 +471,57 @@ export async function getAdminOrders(
     : "/admin/orders";
 
   return apiRequest<AdminOrderListResponse>(path);
+}
+
+export async function exportAdminOrdersCsv(
+  query: AdminOrdersQuery = {}
+): Promise<{
+  filename: string;
+  blob: Blob;
+}> {
+  const params = new URLSearchParams();
+
+  if (query.eventId) {
+    params.set("eventId", query.eventId);
+  }
+
+  if (query.status) {
+    params.set("status", query.status);
+  }
+
+  if (query.search && query.search.trim()) {
+    params.set("search", query.search.trim());
+  }
+
+  const path = params.toString()
+    ? `/admin/orders/export?${params.toString()}`
+    : "/admin/orders/export";
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    const responseType = response.headers.get("content-type") ?? "";
+
+    if (responseType.includes("application/json")) {
+      const body = (await response.json()) as {
+        message?: string;
+      };
+      throw new ApiError(response.status, body.message ?? "Unable to export orders.");
+    }
+
+    const text = await response.text();
+    throw new ApiError(response.status, text || "Unable to export orders.");
+  }
+
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const matchedFilename = disposition.match(/filename=\"?([^"]+)\"?/i)?.[1];
+
+  return {
+    filename: matchedFilename ?? "orders.csv",
+    blob: await response.blob()
+  };
 }
 
 export async function getAdminOrderById(orderId: string): Promise<AdminOrderDetail> {

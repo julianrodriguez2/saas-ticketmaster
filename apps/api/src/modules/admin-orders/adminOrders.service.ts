@@ -39,50 +39,8 @@ export async function listAdminOrders(query: unknown): Promise<{
     totalPages: number;
   };
 }> {
-  const parsedQuery = listAdminOrdersQuerySchema.safeParse(query);
-
-  if (!parsedQuery.success) {
-    throw new AdminOrdersServiceError(
-      400,
-      parsedQuery.error.issues[0]?.message ?? "Invalid admin orders query."
-    );
-  }
-
-  const { eventId, status, search, page, limit } = parsedQuery.data;
-  const where: Prisma.OrderWhereInput = {};
-
-  if (eventId) {
-    where.eventId = eventId;
-  }
-
-  if (status) {
-    where.status = status;
-  }
-
-  if (search) {
-    where.OR = [
-      {
-        id: {
-          contains: search,
-          mode: "insensitive"
-        }
-      },
-      {
-        email: {
-          contains: search,
-          mode: "insensitive"
-        }
-      },
-      {
-        user: {
-          email: {
-            contains: search,
-            mode: "insensitive"
-          }
-        }
-      }
-    ];
-  }
+  const { filters, page, limit } = parseAdminOrdersQuery(query);
+  const where = buildAdminOrdersWhere(filters);
 
   const [total, orders] = await prisma.$transaction([
     prisma.order.count({ where }),
@@ -136,6 +94,74 @@ export async function listAdminOrders(query: unknown): Promise<{
       total,
       totalPages: total === 0 ? 0 : Math.ceil(total / limit)
     }
+  };
+}
+
+export async function exportAdminOrdersCsv(query: unknown): Promise<{
+  filename: string;
+  csv: string;
+}> {
+  const { filters } = parseAdminOrdersQuery(query);
+  const where = buildAdminOrdersWhere(filters);
+  const orders = await prisma.order.findMany({
+    where,
+    orderBy: {
+      createdAt: "desc"
+    },
+    select: {
+      id: true,
+      email: true,
+      status: true,
+      totalAmount: true,
+      createdAt: true,
+      event: {
+        select: {
+          title: true,
+          date: true
+        }
+      },
+      user: {
+        select: {
+          email: true
+        }
+      },
+      _count: {
+        select: {
+          tickets: true
+        }
+      }
+    }
+  });
+
+  const header = [
+    "order id",
+    "customer email",
+    "event title",
+    "event date",
+    "total amount",
+    "status",
+    "ticket count",
+    "created at"
+  ];
+
+  const rows = orders.map((order) => [
+    order.id,
+    order.email ?? order.user?.email ?? "",
+    order.event.title,
+    order.event.date.toISOString(),
+    Number(order.totalAmount).toFixed(2),
+    order.status,
+    String(order._count.tickets),
+    order.createdAt.toISOString()
+  ]);
+
+  const csv = [header, ...rows]
+    .map((row) => row.map((value) => toCsvCell(value)).join(","))
+    .join("\n");
+
+  return {
+    filename: `orders-${new Date().toISOString().slice(0, 10)}.csv`,
+    csv
   };
 }
 
@@ -358,4 +384,83 @@ export async function getAdminOrderById(orderId: string): Promise<{
       ticketTier: item.ticketTier
     }))
   };
+}
+
+function parseAdminOrdersQuery(query: unknown): {
+  filters: {
+    eventId?: string;
+    status?: "PENDING" | "PAID" | "FAILED";
+    search?: string;
+  };
+  page: number;
+  limit: number;
+} {
+  const parsedQuery = listAdminOrdersQuerySchema.safeParse(query);
+
+  if (!parsedQuery.success) {
+    throw new AdminOrdersServiceError(
+      400,
+      parsedQuery.error.issues[0]?.message ?? "Invalid admin orders query."
+    );
+  }
+
+  const { eventId, status, search, page, limit } = parsedQuery.data;
+
+  return {
+    filters: {
+      eventId,
+      status,
+      search
+    },
+    page,
+    limit
+  };
+}
+
+function buildAdminOrdersWhere(filters: {
+  eventId?: string;
+  status?: "PENDING" | "PAID" | "FAILED";
+  search?: string;
+}): Prisma.OrderWhereInput {
+  const where: Prisma.OrderWhereInput = {};
+
+  if (filters.eventId) {
+    where.eventId = filters.eventId;
+  }
+
+  if (filters.status) {
+    where.status = filters.status;
+  }
+
+  if (filters.search) {
+    where.OR = [
+      {
+        id: {
+          contains: filters.search,
+          mode: "insensitive"
+        }
+      },
+      {
+        email: {
+          contains: filters.search,
+          mode: "insensitive"
+        }
+      },
+      {
+        user: {
+          email: {
+            contains: filters.search,
+            mode: "insensitive"
+          }
+        }
+      }
+    ];
+  }
+
+  return where;
+}
+
+function toCsvCell(value: string): string {
+  const escapedValue = value.replace(/"/g, "\"\"");
+  return `"${escapedValue}"`;
 }
