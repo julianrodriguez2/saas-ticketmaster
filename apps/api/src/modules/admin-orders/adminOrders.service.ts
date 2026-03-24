@@ -1,17 +1,19 @@
 import { prisma, type Prisma, type RiskLevel } from "@ticketing/db";
 import { z } from "zod";
+import { buildPaginationMeta, toSkipTake } from "../../utils/pagination";
+import { parsePaginationQuery } from "../../utils/queryParsers";
 
 const listAdminOrdersQuerySchema = z.object({
   eventId: z.string().min(1).optional(),
   status: z.enum(["PENDING", "PAID", "FAILED"]).optional(),
-  search: z.string().trim().min(1).max(120).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20)
+  search: z.string().trim().min(1).max(120).optional()
 });
 
 const listFlaggedOrdersQuerySchema = listAdminOrdersQuerySchema.extend({
   riskLevel: z.enum(["MEDIUM", "HIGH"]).optional()
 });
+
+const adminOrderSortColumns = ["createdAt", "totalAmount", "flaggedAt"] as const;
 
 const reviewAdminOrderSchema = z.object({
   reviewNotes: z.string().trim().max(1000).optional()
@@ -51,18 +53,17 @@ export async function listAdminOrders(query: unknown): Promise<{
     totalPages: number;
   };
 }> {
-  const { filters, page, limit } = parseAdminOrdersQuery(query);
+  const { filters, page, limit, sortBy, sortOrder } = parseAdminOrdersQuery(query);
   const where = buildAdminOrdersWhere(filters);
+  const { skip, take } = toSkipTake({ page, limit });
 
   const [total, orders] = await prisma.$transaction([
     prisma.order.count({ where }),
     prisma.order.findMany({
       where,
-      orderBy: {
-        createdAt: "desc"
-      },
-      skip: (page - 1) * limit,
-      take: limit,
+      orderBy: buildAdminOrderSort(sortBy, sortOrder),
+      skip,
+      take,
       select: {
         id: true,
         email: true,
@@ -108,12 +109,11 @@ export async function listAdminOrders(query: unknown): Promise<{
       flaggedAt: order.flaggedAt,
       reviewedAt: order.reviewedAt
     })),
-    pagination: {
+    pagination: buildPaginationMeta({
       page,
       limit,
-      total,
-      totalPages: total === 0 ? 0 : Math.ceil(total / limit)
-    }
+      total
+    })
   };
 }
 
@@ -151,7 +151,17 @@ export async function listFlaggedAdminOrders(query: unknown): Promise<{
     );
   }
 
-  const { riskLevel, page, limit, ...filters } = parsedQuery.data;
+  const pagination = parsePaginationQuery(query, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: "flaggedAt",
+    defaultSortOrder: "desc",
+    allowedSortBy: [...adminOrderSortColumns]
+  });
+
+  const { riskLevel, ...filters } = parsedQuery.data;
+  const { page, limit, sortBy, sortOrder } = pagination;
+  const { skip, take } = toSkipTake({ page, limit });
   const where = buildAdminOrdersWhere(filters);
   where.riskLevel = riskLevel ? riskLevel : { in: ["MEDIUM", "HIGH"] };
 
@@ -160,15 +170,11 @@ export async function listFlaggedAdminOrders(query: unknown): Promise<{
     prisma.order.findMany({
       where,
       orderBy: [
-        {
-          flaggedAt: "desc"
-        },
-        {
-          createdAt: "desc"
-        }
+        ...buildAdminOrderSort(sortBy, sortOrder),
+        { createdAt: "desc" }
       ],
-      skip: (page - 1) * limit,
-      take: limit,
+      skip,
+      take,
       select: {
         id: true,
         email: true,
@@ -214,12 +220,11 @@ export async function listFlaggedAdminOrders(query: unknown): Promise<{
       flaggedAt: order.flaggedAt,
       reviewedAt: order.reviewedAt
     })),
-    pagination: {
+    pagination: buildPaginationMeta({
       page,
       limit,
-      total,
-      totalPages: total === 0 ? 0 : Math.ceil(total / limit)
-    }
+      total
+    })
   };
 }
 
@@ -667,6 +672,8 @@ function parseAdminOrdersQuery(query: unknown): {
   };
   page: number;
   limit: number;
+  sortBy?: string;
+  sortOrder: "asc" | "desc";
 } {
   const parsedQuery = listAdminOrdersQuerySchema.safeParse(query);
 
@@ -677,7 +684,15 @@ function parseAdminOrdersQuery(query: unknown): {
     );
   }
 
-  const { eventId, status, search, page, limit } = parsedQuery.data;
+  const pagination = parsePaginationQuery(query, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: "createdAt",
+    defaultSortOrder: "desc",
+    allowedSortBy: [...adminOrderSortColumns]
+  });
+
+  const { eventId, status, search } = parsedQuery.data;
 
   return {
     filters: {
@@ -685,8 +700,10 @@ function parseAdminOrdersQuery(query: unknown): {
       status,
       search
     },
-    page,
-    limit
+    page: pagination.page,
+    limit: pagination.limit,
+    sortBy: pagination.sortBy,
+    sortOrder: pagination.sortOrder
   };
 }
 
@@ -779,6 +796,17 @@ async function getPaymentAttemptsForOrder(input: {
       createdAt: true
     }
   });
+}
+
+function buildAdminOrderSort(
+  sortBy: string | undefined,
+  sortOrder: "asc" | "desc"
+): Prisma.OrderOrderByWithRelationInput[] {
+  if (!sortBy || !adminOrderSortColumns.includes(sortBy as (typeof adminOrderSortColumns)[number])) {
+    return [{ createdAt: "desc" }];
+  }
+
+  return [{ [sortBy]: sortOrder } as Prisma.OrderOrderByWithRelationInput];
 }
 
 function parseFraudFlags(value: Prisma.JsonValue | null): string[] {

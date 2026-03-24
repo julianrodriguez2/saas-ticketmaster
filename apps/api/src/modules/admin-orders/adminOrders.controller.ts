@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
 import {
-  AdminOrdersServiceError,
   exportAdminOrdersCsv,
   getAdminOrderById,
   listAdminOrders,
@@ -15,9 +14,14 @@ export async function listAdminOrdersHandler(
 ): Promise<void> {
   try {
     const result = await listAdminOrders(req.query);
-    res.status(200).json(result);
+    res.status(200).json({
+      data: result.orders,
+      meta: result.pagination,
+      orders: result.orders,
+      pagination: result.pagination
+    });
   } catch (error) {
-    handleAdminOrdersError(error, res, next);
+    next(error);
   }
 }
 
@@ -28,9 +32,14 @@ export async function listFlaggedAdminOrdersHandler(
 ): Promise<void> {
   try {
     const result = await listFlaggedAdminOrders(req.query);
-    res.status(200).json(result);
+    res.status(200).json({
+      data: result.orders,
+      meta: result.pagination,
+      orders: result.orders,
+      pagination: result.pagination
+    });
   } catch (error) {
-    handleAdminOrdersError(error, res, next);
+    next(error);
   }
 }
 
@@ -43,7 +52,7 @@ export async function getAdminOrderByIdHandler(
     const order = await getAdminOrderById(req.params.id);
     res.status(200).json({ order });
   } catch (error) {
-    handleAdminOrdersError(error, res, next);
+    next(error);
   }
 }
 
@@ -61,7 +70,7 @@ export async function reviewAdminOrderHandler(
     const review = await reviewAdminOrder(req.params.id, req.user.userId, req.body);
     res.status(200).json({ review });
   } catch (error) {
-    handleAdminOrdersError(error, res, next);
+    next(error);
   }
 }
 
@@ -76,19 +85,6 @@ export async function exportAdminOrdersCsvHandler(
     res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
     res.status(200).send(result.csv);
   } catch (error) {
-    handleAdminOrdersError(error, res, next);
+    next(error);
   }
-}
-
-function handleAdminOrdersError(
-  error: unknown,
-  res: Response,
-  next: NextFunction
-): void {
-  if (error instanceof AdminOrdersServiceError) {
-    res.status(error.statusCode).json({ message: error.message });
-    return;
-  }
-
-  next(error);
 }

@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
 import {
-  AdminAttendeesServiceError,
   exportEventAttendeesCsv,
   listEventAttendees
 } from "./adminAttendees.service";
@@ -12,13 +11,14 @@ export async function listEventAttendeesHandler(
 ): Promise<void> {
   try {
     const result = await listEventAttendees(req.params.eventId, req.query);
-    res.status(200).json(result);
+    res.status(200).json({
+      event: result.event,
+      data: result.attendees,
+      meta: result.pagination,
+      attendees: result.attendees,
+      pagination: result.pagination
+    });
   } catch (error) {
-    if (error instanceof AdminAttendeesServiceError) {
-      res.status(error.statusCode).json({ message: error.message });
-      return;
-    }
-
     next(error);
   }
 }
@@ -37,11 +37,6 @@ export async function exportEventAttendeesCsvHandler(
     );
     res.status(200).send(result.csv);
   } catch (error) {
-    if (error instanceof AdminAttendeesServiceError) {
-      res.status(error.statusCode).json({ message: error.message });
-      return;
-    }
-
     next(error);
   }
 }

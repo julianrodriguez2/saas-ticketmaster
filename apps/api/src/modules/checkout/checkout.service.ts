@@ -48,6 +48,7 @@ const createCheckoutSessionSchema = z
 type ClientRequestContext = {
   ipAddress: string | null;
   userAgent: string | null;
+  idempotencyKey?: string;
 };
 
 type CheckoutOrderItem = {
@@ -112,10 +113,23 @@ export async function createCheckoutSession(
 
   const ipAddress = normalizeIpAddress(clientContext?.ipAddress ?? null);
   const userAgent = normalizeUserAgent(clientContext?.userAgent ?? null);
+  const idempotencyKey = normalizeIdempotencyKey(clientContext?.idempotencyKey ?? null);
   const orderEmail = await resolveOrderEmail({
     userId: userId ?? null,
     payloadEmail: payload.email ?? null
   });
+
+  if (idempotencyKey) {
+    const existingSession = await tryReuseCheckoutSession({
+      idempotencyKey,
+      userId: userId ?? null,
+      orderEmail
+    });
+
+    if (existingSession) {
+      return existingSession;
+    }
+  }
 
   let presaleValidation: Awaited<ReturnType<typeof validatePresaleAccess>>;
 
@@ -207,7 +221,8 @@ export async function createCheckoutSession(
         email: orderEmail,
         eventId: payload.eventId,
         totalAmount: selection.totalAmount,
-        status: "PENDING"
+        status: "PENDING",
+        checkoutIdempotencyKey: idempotencyKey ?? undefined
       }
     });
 
@@ -561,4 +576,88 @@ function normalizeUserAgent(userAgent: string | null): string | null {
 
   const trimmedUserAgent = userAgent.trim();
   return trimmedUserAgent ? trimmedUserAgent.slice(0, 500) : null;
+}
+
+function normalizeIdempotencyKey(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return null;
+  }
+
+  return trimmedValue.slice(0, 180);
+}
+
+async function tryReuseCheckoutSession(input: {
+  idempotencyKey: string;
+  userId: string | null;
+  orderEmail: string | null;
+}): Promise<{
+  clientSecret: string;
+  orderId: string;
+  totalAmount: number;
+  currency: "usd";
+} | null> {
+  const order = await prisma.order.findUnique({
+    where: {
+      checkoutIdempotencyKey: input.idempotencyKey
+    },
+    select: {
+      id: true,
+      status: true,
+      totalAmount: true,
+      userId: true,
+      email: true,
+      payment: {
+        select: {
+          paymentIntentId: true,
+          status: true
+        }
+      }
+    }
+  });
+
+  if (!order) {
+    return null;
+  }
+
+  if (input.userId && order.userId !== input.userId) {
+    throw new CheckoutServiceError(409, "Idempotency key is already in use.");
+  }
+
+  if (!input.userId && input.orderEmail && order.email !== input.orderEmail) {
+    throw new CheckoutServiceError(409, "Idempotency key is already in use.");
+  }
+
+  if (order.status === "PAID") {
+    throw new CheckoutServiceError(409, "Order has already been paid.");
+  }
+
+  if (order.status === "FAILED" || !order.payment || order.payment.status === "FAILED") {
+    throw new CheckoutServiceError(
+      409,
+      "Idempotency key references a failed checkout attempt. Start a new checkout session."
+    );
+  }
+
+  const paymentIntent = await getStripeClient().paymentIntents.retrieve(
+    order.payment.paymentIntentId
+  );
+
+  if (!paymentIntent.client_secret) {
+    throw new CheckoutServiceError(
+      409,
+      "Existing checkout session is not recoverable. Please retry checkout."
+    );
+  }
+
+  return {
+    clientSecret: paymentIntent.client_secret,
+    orderId: order.id,
+    totalAmount: Number(order.totalAmount),
+    currency: "usd"
+  };
 }

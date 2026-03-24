@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
 import {
-  SeatMapServiceError,
   getAdminSeatMap,
   getEventAvailability,
   getPublicSeatMap,
@@ -17,7 +16,7 @@ export async function replaceSeatMapHandler(
     const seatMap = await replaceSeatMap(req.params.eventId, req.body);
     res.status(200).json({ seatMap });
   } catch (error) {
-    handleSeatMapError(error, res, next);
+    next(error);
   }
 }
 
@@ -30,7 +29,7 @@ export async function getAdminSeatMapHandler(
     const seatMap = await getAdminSeatMap(req.params.eventId);
     res.status(200).json({ seatMap });
   } catch (error) {
-    handleSeatMapError(error, res, next);
+    next(error);
   }
 }
 
@@ -41,9 +40,10 @@ export async function getPublicSeatMapHandler(
 ): Promise<void> {
   try {
     const seatMap = await getPublicSeatMap(req.params.eventId);
+    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
     res.status(200).json({ seatMap });
   } catch (error) {
-    handleSeatMapError(error, res, next);
+    next(error);
   }
 }
 
@@ -54,9 +54,10 @@ export async function getEventAvailabilityHandler(
 ): Promise<void> {
   try {
     const availability = await getEventAvailability(req.params.eventId);
+    res.setHeader("Cache-Control", "public, max-age=10, stale-while-revalidate=20");
     res.status(200).json({ availability });
   } catch (error) {
-    handleSeatMapError(error, res, next);
+    next(error);
   }
 }
 
@@ -69,19 +70,6 @@ export async function validateSelectionHandler(
     const validation = await validateSelection(req.params.eventId, req.body);
     res.status(200).json({ validation });
   } catch (error) {
-    handleSeatMapError(error, res, next);
+    next(error);
   }
-}
-
-function handleSeatMapError(
-  error: unknown,
-  res: Response,
-  next: NextFunction
-): void {
-  if (error instanceof SeatMapServiceError) {
-    res.status(error.statusCode).json({ message: error.message });
-    return;
-  }
-
-  next(error);
 }

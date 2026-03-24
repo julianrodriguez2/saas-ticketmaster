@@ -10,6 +10,7 @@ import {
   type SeatSelectionCandidate
 } from "../../../components/events/SeatMap";
 import { SelectedSeatsSummary } from "../../../components/events/SelectedSeatsSummary";
+import { Skeleton } from "../../../components/ui/Skeleton";
 import {
   getAvailability,
   getEventById,
@@ -54,6 +55,10 @@ export default function EventDetailPage() {
   const selectedSeats = useMemo(
     () => Object.values(selectedSeatsMap),
     [selectedSeatsMap]
+  );
+  const selectedTotal = useMemo(
+    () => selectedSeats.reduce((total, seat) => total + seat.price, 0),
+    [selectedSeats]
   );
 
   useEffect(() => {
@@ -341,8 +346,17 @@ export default function EventDetailPage() {
 
   if (isLoading) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-6 py-20">
-        <p className="text-sm text-slate-600">Loading event details...</p>
+      <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-4 py-8 sm:px-6 sm:py-10">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="mt-3 h-8 w-2/3" />
+          <Skeleton className="mt-4 h-4 w-full" />
+          <Skeleton className="mt-2 h-4 w-5/6" />
+        </section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="mt-4 h-64 w-full" />
+        </section>
       </main>
     );
   }
@@ -362,7 +376,7 @@ export default function EventDetailPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-6 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 pb-24 sm:px-6 sm:py-10 sm:pb-10">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -372,7 +386,7 @@ export default function EventDetailPage() {
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
               {event.title}
             </h1>
-            <p className="mt-3 text-sm text-slate-700">{event.description}</p>
+            <p className="mt-3 text-sm leading-relaxed text-slate-700">{event.description}</p>
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
             {event.ticketingMode}
@@ -468,6 +482,7 @@ export default function EventDetailPage() {
         <GATicketSelector
           ticketTiers={event.ticketTiers}
           isSubmitting={isContinuing}
+          isDisabled={Boolean(event.activePresale && !presaleAccessGranted)}
           onContinue={handleContinueGAFlow}
         />
       ) : isSeatMapLoading ? (
@@ -519,14 +534,45 @@ export default function EventDetailPage() {
             <button
               type="button"
               onClick={() => void handleContinueReservedFlow()}
-              disabled={isContinuing || selectedSeats.length === 0}
-              className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={
+                isContinuing ||
+                selectedSeats.length === 0 ||
+                Boolean(event.activePresale && !presaleAccessGranted)
+              }
+              className="hidden w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70 lg:block"
             >
               {isContinuing ? "Validating..." : "Continue to Checkout"}
             </button>
           </div>
         </section>
       )}
+
+      {event.ticketingMode === "RESERVED" && seatMap && seatMap.sections.length > 0 ? (
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 py-3 pb-safe backdrop-blur lg:hidden">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-500">
+                {selectedSeats.length} seat{selectedSeats.length === 1 ? "" : "s"} selected
+              </p>
+              <p className="text-base font-semibold text-slate-900">
+                ${selectedTotal.toFixed(2)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleContinueReservedFlow()}
+              disabled={
+                isContinuing ||
+                selectedSeats.length === 0 ||
+                Boolean(event.activePresale && !presaleAccessGranted)
+              }
+              className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {isContinuing ? "Validating..." : "Continue"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

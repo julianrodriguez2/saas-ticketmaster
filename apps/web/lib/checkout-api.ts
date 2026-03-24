@@ -104,12 +104,20 @@ export type TicketDetail = {
 };
 
 export async function createCheckoutSession(
-  input: CreateCheckoutSessionInput
+  input: CreateCheckoutSessionInput,
+  options?: {
+    idempotencyKey?: string;
+  }
 ): Promise<CheckoutSession> {
   const response = await apiRequest<{ session: CheckoutSession }>(
     "/checkout/create-session",
     {
       method: "POST",
+      headers: options?.idempotencyKey
+        ? {
+            "Idempotency-Key": options.idempotencyKey
+          }
+        : undefined,
       body: input
     }
   );

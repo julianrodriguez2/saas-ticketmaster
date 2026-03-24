@@ -1,55 +1,93 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
-import healthRoutes from "./routes/health.routes";
-import authRoutes from "./modules/auth/auth.routes";
-import adminAnalyticsRoutes from "./modules/admin-analytics/adminAnalytics.routes";
-import adminAttendeeRoutes from "./modules/admin-attendees/adminAttendees.routes";
-import adminNotificationRoutes from "./modules/admin-notifications/adminNotification.routes";
-import adminOrdersRoutes from "./modules/admin-orders/adminOrders.routes";
-import checkoutRoutes from "./modules/checkout/checkout.routes";
-import eventTemplateRoutes from "./modules/event-templates/eventTemplate.routes";
-import eventRoutes from "./modules/events/event.routes";
-import importRoutes from "./modules/imports/import.routes";
-import orderRoutes from "./modules/orders/order.routes";
-import paymentRoutes from "./modules/payments/payment.routes";
-import presaleRoutes from "./modules/presales/presale.routes";
-import seatMapRoutes from "./modules/seatmaps/seatmap.routes";
-import ticketRoutes, { adminTicketRouter } from "./modules/tickets/ticket.routes";
-import venueRoutes from "./modules/venues/venue.routes";
+import helmet from "helmet";
+import { createApiV1Router } from "./api/v1";
 import { errorHandler } from "./middlewares/error-handler.middleware";
+import {
+  createGlobalRateLimiter,
+  createWebhookRateLimiter
+} from "./middlewares/rate-limit.middleware";
+import { requestContextMiddleware } from "./middlewares/request-context.middleware";
+import paymentRoutes from "./modules/payments/payment.routes";
 
 const app = express();
-const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
+
+const trustProxy =
+  process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
+
+if (trustProxy) {
+  app.set("trust proxy", 1);
+}
+
+const allowlistedOrigins = resolveAllowedOrigins();
+
+app.use(requestContextMiddleware);
+app.use(createGlobalRateLimiter());
+app.use(helmet());
 
 app.use(
   cors({
-    origin: webOrigin,
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowlistedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Origin is not allowed by CORS policy."));
+    },
     credentials: true
   })
 );
+
 app.use(cookieParser());
 
-// Stripe webhook requires raw body verification, so it must run before JSON parsing.
-app.use("/webhooks", paymentRoutes);
-app.use(express.json());
+// Stripe webhook requires raw body verification.
+app.use("/api/v1/webhooks", createWebhookRateLimiter(), paymentRoutes);
+app.use("/webhooks", createWebhookRateLimiter(), paymentRoutes);
 
-app.use("/auth", authRoutes);
-app.use("/admin/analytics", adminAnalyticsRoutes);
-app.use("/admin", adminAttendeeRoutes);
-app.use("/admin/notifications", adminNotificationRoutes);
-app.use("/admin/orders", adminOrdersRoutes);
-app.use("/admin/event-templates", eventTemplateRoutes);
-app.use("/admin/imports", importRoutes);
-app.use("/admin/tickets", adminTicketRouter);
-app.use("/checkout", checkoutRoutes);
-app.use("/orders", orderRoutes);
-app.use("/tickets", ticketRoutes);
-app.use("/venues", venueRoutes);
-app.use("/events", eventRoutes);
-app.use("/", presaleRoutes);
-app.use("/", seatMapRoutes);
-app.use("/health", healthRoutes);
+app.use(
+  express.json({
+    limit: process.env.JSON_BODY_LIMIT ?? "1mb"
+  })
+);
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: process.env.FORM_BODY_LIMIT ?? "1mb"
+  })
+);
+
+const v1Router = createApiV1Router();
+app.use("/api/v1", v1Router);
+
+// Keep legacy routes mounted during transition.
+if (process.env.ENABLE_LEGACY_ROUTES !== "false") {
+  app.use("/", v1Router);
+}
+
 app.use(errorHandler);
 
 export default app;
+
+function resolveAllowedOrigins(): string[] {
+  const rawOrigins = process.env.CORS_ALLOWED_ORIGINS ?? process.env.WEB_ORIGIN;
+  const defaults = ["http://localhost:3000"];
+
+  if (!rawOrigins) {
+    return defaults;
+  }
+
+  const parsedOrigins = rawOrigins
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
+  return parsedOrigins.length > 0 ? parsedOrigins : defaults;
+}
+

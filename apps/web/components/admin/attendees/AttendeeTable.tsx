@@ -1,6 +1,7 @@
 "use client";
 
 import type { AdminAttendeeListResponse } from "../../../lib/admin-api";
+import { Skeleton } from "../../ui/Skeleton";
 
 type AttendeeTableProps = {
   data: AdminAttendeeListResponse;
@@ -28,47 +29,59 @@ export function AttendeeTable({
         </p>
       </div>
 
-      {attendees.length === 0 ? (
+      {isLoading && attendees.length === 0 ? (
+        <div className="mt-4 space-y-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div
+              key={`admin-attendee-skeleton-${index}`}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+            >
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="mt-2 h-4 w-3/4" />
+            </div>
+          ))}
+        </div>
+      ) : attendees.length === 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
           <p className="text-sm text-slate-600">No attendees found for this filter.</p>
         </div>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 max-h-[560px] overflow-auto rounded-xl border border-slate-200">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-10 bg-white text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="pb-2 pr-4">Email</th>
-                <th className="pb-2 pr-4">Attendee</th>
-                <th className="pb-2 pr-4">Ticket Code</th>
-                <th className="pb-2 pr-4">Seat/Tier</th>
-                <th className="pb-2 pr-4">Ticket Status</th>
-                <th className="pb-2 pr-4">Check-In</th>
-                <th className="pb-2 pr-4">Purchase Date</th>
+                <th className="border-b border-slate-200 px-3 py-3">Email</th>
+                <th className="border-b border-slate-200 px-3 py-3">Attendee</th>
+                <th className="border-b border-slate-200 px-3 py-3">Ticket Code</th>
+                <th className="border-b border-slate-200 px-3 py-3">Seat/Tier</th>
+                <th className="border-b border-slate-200 px-3 py-3">Ticket Status</th>
+                <th className="border-b border-slate-200 px-3 py-3">Check-In</th>
+                <th className="border-b border-slate-200 px-3 py-3">Purchase Date</th>
               </tr>
             </thead>
             <tbody>
               {attendees.map((attendee) => (
                 <tr key={attendee.ticketId} className="border-t border-slate-200">
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 text-slate-700">
                     {attendee.customerEmail ?? "Guest checkout"}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 text-slate-700">
                     {attendee.attendeeName ?? "N/A"}
                   </td>
-                  <td className="py-3 pr-4 font-medium text-slate-900">{attendee.ticketCode}</td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 font-medium text-slate-900">{attendee.ticketCode}</td>
+                  <td className="px-3 py-3 text-slate-700">
                     {attendee.seat
                       ? `${attendee.seat.section} - Row ${attendee.seat.row} Seat ${attendee.seat.seatNumber}`
                       : attendee.tier?.name ?? "GA"}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">{attendee.ticketStatus}</td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 text-slate-700">{attendee.ticketStatus}</td>
+                  <td className="px-3 py-3 text-slate-700">
                     {attendee.checkInStatus}
                     {attendee.checkedInAt
                       ? ` (${new Date(attendee.checkedInAt).toLocaleTimeString()})`
                       : ""}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 text-slate-700">
                     {new Date(attendee.purchaseDate).toLocaleString()}
                   </td>
                 </tr>

@@ -33,6 +33,10 @@ export default function AdminOrdersPage() {
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | "">("");
   const [selectedEventId, setSelectedEventId] = useState("");
+  const [sortBy, setSortBy] = useState<"createdAt" | "totalAmount" | "flaggedAt">(
+    "createdAt"
+  );
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -70,7 +74,7 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedStatus, selectedEventId]);
+  }, [search, selectedStatus, selectedEventId, sortBy, sortOrder]);
 
   useEffect(() => {
     if (isAuthLoading) {
@@ -94,7 +98,9 @@ export default function AdminOrdersPage() {
           limit: 20,
           search: search || undefined,
           status: selectedStatus || undefined,
-          eventId: selectedEventId || undefined
+          eventId: selectedEventId || undefined,
+          sortBy,
+          sortOrder
         });
 
         if (!isCancelled) {
@@ -119,7 +125,7 @@ export default function AdminOrdersPage() {
     return () => {
       isCancelled = true;
     };
-  }, [isAuthLoading, page, search, selectedEventId, selectedStatus, user]);
+  }, [isAuthLoading, page, search, selectedEventId, selectedStatus, sortBy, sortOrder, user]);
 
   async function handleExportOrders(): Promise<void> {
     setError(null);
@@ -162,6 +168,15 @@ export default function AdminOrdersPage() {
     return null;
   }
 
+  function handleResetFilters(): void {
+    setSearch("");
+    setSelectedStatus("");
+    setSelectedEventId("");
+    setSortBy("createdAt");
+    setSortOrder("desc");
+    setPage(1);
+  }
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-6 py-10">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -196,7 +211,7 @@ export default function AdminOrdersPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-5">
+      <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-6">
         <label className="text-sm font-medium text-slate-700">
           Search
           <input
@@ -238,15 +253,51 @@ export default function AdminOrdersPage() {
           </select>
         </label>
 
-        <div className="flex items-end">
-          <button
-            type="button"
-            onClick={() => void handleExportOrders()}
-            disabled={isExporting}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+        <label className="text-sm font-medium text-slate-700">
+          Sort
+          <select
+            value={sortBy}
+            onChange={(event) =>
+              setSortBy(event.target.value as "createdAt" | "totalAmount" | "flaggedAt")
+            }
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
           >
-            {isExporting ? "Exporting..." : "Export CSV"}
-          </button>
+            <option value="createdAt">Created At</option>
+            <option value="totalAmount">Total Amount</option>
+            <option value="flaggedAt">Flagged At</option>
+          </select>
+        </label>
+
+        <label className="text-sm font-medium text-slate-700">
+          Direction
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as "asc" | "desc")}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </label>
+
+        <div className="flex items-end">
+          <div className="flex w-full gap-2">
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleExportOrders()}
+              disabled={isExporting}
+              className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {isExporting ? "Exporting..." : "Export CSV"}
+            </button>
+          </div>
         </div>
       </section>
 

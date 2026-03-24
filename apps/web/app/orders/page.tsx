@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { OrderCard } from "../../components/orders/OrderCard";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { getOrders, type OrderListItem } from "../../lib/checkout-api";
 import { useAuth } from "../../lib/auth-context";
 
@@ -55,8 +56,23 @@ export default function OrdersPage() {
 
   if (isAuthLoading || isLoading) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-20">
-        <p className="text-sm text-slate-600">Loading your orders...</p>
+      <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="mt-3 h-4 w-72" />
+        </section>
+        <section className="grid gap-4 lg:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <article
+              key={`orders-page-skeleton-${index}`}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="mt-3 h-4 w-2/3" />
+              <Skeleton className="mt-2 h-4 w-1/2" />
+            </article>
+          ))}
+        </section>
       </main>
     );
   }
@@ -66,7 +82,7 @@ export default function OrdersPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-6 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">My Orders</h1>
         <p className="mt-2 text-sm text-slate-600">

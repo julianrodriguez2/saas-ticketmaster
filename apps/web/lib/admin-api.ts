@@ -1,4 +1,4 @@
-import { API_BASE_URL, ApiError, apiRequest } from "./api";
+import { API_BASE_URL, ApiError, apiRequest, type ApiPaginationMeta } from "./api";
 
 export type TicketingMode = "GA" | "RESERVED";
 export type SeatStatus = "AVAILABLE" | "RESERVED" | "SOLD" | "BLOCKED";
@@ -514,6 +514,7 @@ export type AdminNotification = {
 
 export type AdminNotificationListResponse = {
   notifications: AdminNotification[];
+  pagination?: ApiPaginationMeta;
 };
 
 export type AdminAttendee = {
@@ -597,8 +598,29 @@ export async function createVenue(input: CreateVenueInput): Promise<Venue> {
 }
 
 export async function getEvents(): Promise<AdminEventSummary[]> {
-  const response = await apiRequest<{ events: AdminEventSummary[] }>("/events");
-  return response.events;
+  const firstPageResponse = await apiRequest<
+    | { events: AdminEventSummary[] }
+    | { data: AdminEventSummary[]; meta: ApiPaginationMeta }
+  >("/events?page=1&limit=100&sortBy=date&sortOrder=asc");
+
+  if (!("data" in firstPageResponse)) {
+    return firstPageResponse.events;
+  }
+
+  if (firstPageResponse.meta.totalPages <= 1) {
+    return firstPageResponse.data;
+  }
+
+  const allEvents = [...firstPageResponse.data];
+
+  for (let page = 2; page <= firstPageResponse.meta.totalPages; page += 1) {
+    const pageResponse = await apiRequest<{ data: AdminEventSummary[]; meta: ApiPaginationMeta }>(
+      `/events?page=${page}&limit=100&sortBy=date&sortOrder=asc`
+    );
+    allEvents.push(...pageResponse.data);
+  }
+
+  return allEvents;
 }
 
 export async function createEvent(input: CreateEventInput): Promise<AdminEventDetail> {
@@ -788,6 +810,8 @@ export type AdminOrdersQuery = {
   search?: string;
   page?: number;
   limit?: number;
+  sortBy?: "createdAt" | "totalAmount" | "flaggedAt";
+  sortOrder?: "asc" | "desc";
 };
 
 export type AdminFlaggedOrdersQuery = AdminOrdersQuery & {
@@ -819,11 +843,31 @@ export async function getAdminOrders(
     params.set("limit", String(query.limit));
   }
 
+  if (query.sortBy) {
+    params.set("sortBy", query.sortBy);
+  }
+
+  if (query.sortOrder) {
+    params.set("sortOrder", query.sortOrder);
+  }
+
   const path = params.toString()
     ? `/admin/orders?${params.toString()}`
     : "/admin/orders";
 
-  return apiRequest<AdminOrderListResponse>(path);
+  const response = await apiRequest<
+    | AdminOrderListResponse
+    | { data: AdminOrderListItem[]; meta: ApiPaginationMeta }
+  >(path);
+
+  if ("data" in response && "meta" in response) {
+    return {
+      orders: response.data,
+      pagination: response.meta
+    };
+  }
+
+  return response;
 }
 
 export async function getFlaggedAdminOrders(
@@ -855,11 +899,31 @@ export async function getFlaggedAdminOrders(
     params.set("limit", String(query.limit));
   }
 
+  if (query.sortBy) {
+    params.set("sortBy", query.sortBy);
+  }
+
+  if (query.sortOrder) {
+    params.set("sortOrder", query.sortOrder);
+  }
+
   const path = params.toString()
     ? `/admin/orders/flagged?${params.toString()}`
     : "/admin/orders/flagged";
 
-  return apiRequest<AdminOrderListResponse>(path);
+  const response = await apiRequest<
+    | AdminOrderListResponse
+    | { data: AdminOrderListItem[]; meta: ApiPaginationMeta }
+  >(path);
+
+  if ("data" in response && "meta" in response) {
+    return {
+      orders: response.data,
+      pagination: response.meta
+    };
+  }
+
+  return response;
 }
 
 export async function exportAdminOrdersCsv(
@@ -897,11 +961,17 @@ export async function exportAdminOrdersCsv(
       const body = (await response.json()) as {
         message?: string;
       };
-      throw new ApiError(response.status, body.message ?? "Unable to export orders.");
+      throw new ApiError({
+        statusCode: response.status,
+        message: body.message ?? "Unable to export orders."
+      });
     }
 
     const text = await response.text();
-    throw new ApiError(response.status, text || "Unable to export orders.");
+    throw new ApiError({
+      statusCode: response.status,
+      message: text || "Unable to export orders."
+    });
   }
 
   const disposition = response.headers.get("content-disposition") ?? "";
@@ -980,7 +1050,27 @@ export async function getAdminEventAttendees(
     ? `/admin/events/${eventId}/attendees?${params.toString()}`
     : `/admin/events/${eventId}/attendees`;
 
-  return apiRequest<AdminAttendeeListResponse>(path);
+  const response = await apiRequest<
+    | AdminAttendeeListResponse
+    | {
+        event: {
+          id: string;
+          title: string;
+        };
+        data: AdminAttendee[];
+        meta: ApiPaginationMeta;
+      }
+  >(path);
+
+  if ("data" in response && "meta" in response) {
+    return {
+      event: response.event,
+      attendees: response.data,
+      pagination: response.meta
+    };
+  }
+
+  return response;
 }
 
 export async function exportAdminEventAttendeesCsv(
@@ -1023,11 +1113,17 @@ export async function exportAdminEventAttendeesCsv(
       const body = (await response.json()) as {
         message?: string;
       };
-      throw new ApiError(response.status, body.message ?? "Unable to export attendees.");
+      throw new ApiError({
+        statusCode: response.status,
+        message: body.message ?? "Unable to export attendees."
+      });
     }
 
     const text = await response.text();
-    throw new ApiError(response.status, text || "Unable to export attendees.");
+    throw new ApiError({
+      statusCode: response.status,
+      message: text || "Unable to export attendees."
+    });
   }
 
   const disposition = response.headers.get("content-disposition") ?? "";
@@ -1072,6 +1168,7 @@ export async function getAdminNotifications(query?: {
   unreadOnly?: boolean;
   severity?: NotificationSeverity;
   type?: string;
+  page?: number;
   limit?: number;
 }): Promise<AdminNotificationListResponse> {
   const params = new URLSearchParams();
@@ -1088,6 +1185,10 @@ export async function getAdminNotifications(query?: {
     params.set("type", query.type);
   }
 
+  if (query?.page) {
+    params.set("page", String(query.page));
+  }
+
   if (query?.limit) {
     params.set("limit", String(query.limit));
   }
@@ -1096,7 +1197,19 @@ export async function getAdminNotifications(query?: {
     ? `/admin/notifications?${params.toString()}`
     : "/admin/notifications";
 
-  return apiRequest<AdminNotificationListResponse>(path);
+  const response = await apiRequest<
+    | AdminNotificationListResponse
+    | { data: AdminNotification[]; meta: ApiPaginationMeta }
+  >(path);
+
+  if ("data" in response && "meta" in response) {
+    return {
+      notifications: response.data,
+      pagination: response.meta
+    };
+  }
+
+  return response;
 }
 
 export async function markAdminNotificationRead(notificationId: string): Promise<{
@@ -1231,15 +1344,30 @@ export async function getImportJobs(query?: {
     ? `/admin/imports?${params.toString()}`
     : "/admin/imports";
 
-  return apiRequest<{
-    jobs: ImportJobSummary[];
-    pagination: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
+  const response = await apiRequest<
+    | {
+        jobs: ImportJobSummary[];
+        pagination: {
+          page: number;
+          limit: number;
+          total: number;
+          totalPages: number;
+        };
+      }
+    | {
+        data: ImportJobSummary[];
+        meta: ApiPaginationMeta;
+      }
+  >(path);
+
+  if ("data" in response && "meta" in response) {
+    return {
+      jobs: response.data,
+      pagination: response.meta
     };
-  }>(path);
+  }
+
+  return response;
 }
 
 export async function getImportJobById(importJobId: string): Promise<ImportJobDetail> {
@@ -1257,9 +1385,15 @@ async function throwApiErrorFromResponse(
     const body = (await response.json()) as {
       message?: string;
     };
-    throw new ApiError(response.status, body.message ?? fallbackMessage);
+    throw new ApiError({
+      statusCode: response.status,
+      message: body.message ?? fallbackMessage
+    });
   }
 
   const text = await response.text();
-  throw new ApiError(response.status, text || fallbackMessage);
+  throw new ApiError({
+    statusCode: response.status,
+    message: text || fallbackMessage
+  });
 }

@@ -1,5 +1,6 @@
 import { prisma } from "@ticketing/db";
 import { z } from "zod";
+import { invalidateEventCaches } from "../events/event.service";
 
 const ticketingModeSchema = z.enum(["GA", "RESERVED"]);
 const publishStatusSchema = z.enum(["DRAFT", "PUBLISHED"]);
@@ -403,6 +404,8 @@ export async function applyTemplateToEvent(templateId: string, input: unknown) {
   const activePresale = createdEvent.presaleRules.find(
     (presale) => presale.isActive && presale.startsAt <= now && presale.endsAt >= now
   );
+
+  invalidateEventCaches();
 
   return {
     id: createdEvent.id,

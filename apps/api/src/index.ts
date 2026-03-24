@@ -8,6 +8,11 @@ async function startServer(): Promise<void> {
   if (!process.env.JWT_SECRET) {
     console.warn("JWT_SECRET is not set. Auth routes will fail until it is configured.");
   }
+  if (!process.env.CORS_ALLOWED_ORIGINS && !process.env.WEB_ORIGIN) {
+    console.warn(
+      "CORS_ALLOWED_ORIGINS/WEB_ORIGIN is not set. Default localhost CORS policy will be used."
+    );
+  }
   if (!process.env.STRIPE_SECRET_KEY) {
     console.warn("STRIPE_SECRET_KEY is not set. Checkout creation will fail.");
   }

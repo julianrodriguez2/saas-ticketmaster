@@ -1,6 +1,9 @@
 import { prisma, type BulkImportJobStatus, type Prisma } from "@ticketing/db";
 import { z } from "zod";
 import { parseCsvBuffer } from "./import.parsers";
+import { buildPaginationMeta, toSkipTake } from "../../utils/pagination";
+import { parsePaginationQuery } from "../../utils/queryParsers";
+import { invalidateEventCaches } from "../events/event.service";
 import {
   type ImportPreviewRow,
   type ImportRowValidationError,
@@ -14,10 +17,7 @@ const commitImportSchema = z.object({
   importJobId: z.string().min(1)
 });
 
-const listImportJobsQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20)
-});
+const listImportJobsQuerySchema = z.object({});
 
 export class ImportServiceError extends Error {
   public readonly statusCode: number;
@@ -411,6 +411,10 @@ export async function commitEventsImport(
     }
   });
 
+  if (createdEventIds.length > 0) {
+    invalidateEventCaches();
+  }
+
   return {
     importJobId: importJob.id,
     successCount: createdEventIds.length,
@@ -455,16 +459,22 @@ export async function listImportJobs(query: unknown): Promise<{
     );
   }
 
-  const { page, limit } = parsedQuery.data;
+  const pagination = parsePaginationQuery(query, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: "createdAt",
+    defaultSortOrder: "desc",
+    allowedSortBy: ["createdAt", "completedAt", "status"]
+  });
+  const { page, limit, sortBy, sortOrder } = pagination;
+  const { skip, take } = toSkipTake({ page, limit });
 
   const [total, jobs] = await prisma.$transaction([
     prisma.bulkImportJob.count(),
     prisma.bulkImportJob.findMany({
-      orderBy: {
-        createdAt: "desc"
-      },
-      skip: (page - 1) * limit,
-      take: limit,
+      orderBy: buildImportSort(sortBy, sortOrder),
+      skip,
+      take,
       select: {
         id: true,
         fileName: true,
@@ -486,12 +496,11 @@ export async function listImportJobs(query: unknown): Promise<{
 
   return {
     jobs,
-    pagination: {
+    pagination: buildPaginationMeta({
       page,
       limit,
-      total,
-      totalPages: total === 0 ? 0 : Math.ceil(total / limit)
-    }
+      total
+    })
   };
 }
 
@@ -776,4 +785,16 @@ function buildTemplatePresales(
       accessCode: string | null;
       isActive: boolean;
     } => Boolean(presale));
+}
+
+function buildImportSort(
+  sortBy: string | undefined,
+  sortOrder: "asc" | "desc"
+): Prisma.BulkImportJobOrderByWithRelationInput[] {
+  const allowedSortColumns = ["createdAt", "completedAt", "status"] as const;
+  if (!sortBy || !allowedSortColumns.includes(sortBy as (typeof allowedSortColumns)[number])) {
+    return [{ createdAt: "desc" }];
+  }
+
+  return [{ [sortBy]: sortOrder } as Prisma.BulkImportJobOrderByWithRelationInput];
 }

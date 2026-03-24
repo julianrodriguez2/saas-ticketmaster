@@ -46,6 +46,9 @@ export default function CheckoutPage() {
   const [summary, setSummary] = useState<CheckoutSummaryData | null>(null);
   const [selectionPayload, setSelectionPayload] = useState<CheckoutSelectionPayload | null>(null);
   const [session, setSession] = useState<CheckoutSession | null>(null);
+  const [checkoutIdempotencyKey, setCheckoutIdempotencyKey] = useState<string | null>(
+    null
+  );
   const [guestEmail, setGuestEmail] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
@@ -69,10 +72,38 @@ export default function CheckoutPage() {
         : "/checkout/cancel",
     [retryQuery]
   );
+  const idempotencyStorageKey = useMemo(
+    () => (retryQuery ? `checkout:idempotency:${retryQuery}` : null),
+    [retryQuery]
+  );
+
+  useEffect(() => {
+    if (!idempotencyStorageKey) {
+      return;
+    }
+
+    const existingKey = sessionStorage.getItem(idempotencyStorageKey);
+    if (existingKey) {
+      setCheckoutIdempotencyKey(existingKey);
+      return;
+    }
+
+    const generatedKey =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? `checkout:${crypto.randomUUID()}`
+        : `checkout:${Date.now()}:${Math.random().toString(16).slice(2, 10)}`;
+
+    sessionStorage.setItem(idempotencyStorageKey, generatedKey);
+    setCheckoutIdempotencyKey(generatedKey);
+  }, [idempotencyStorageKey]);
 
   const initializeSession = useCallback(
     async (email?: string): Promise<void> => {
       if (!selectionPayload || session || isCreatingSession) {
+        return;
+      }
+
+      if (!checkoutIdempotencyKey) {
         return;
       }
 
@@ -87,7 +118,9 @@ export default function CheckoutPage() {
             }
           : selectionPayload;
 
-        const nextSession = await createCheckoutSession(payload);
+        const nextSession = await createCheckoutSession(payload, {
+          idempotencyKey: checkoutIdempotencyKey ?? undefined
+        });
         setSession(nextSession);
       } catch (sessionError) {
         setSessionError(
@@ -99,7 +132,7 @@ export default function CheckoutPage() {
         setIsCreatingSession(false);
       }
     },
-    [isCreatingSession, selectionPayload, session]
+    [checkoutIdempotencyKey, isCreatingSession, selectionPayload, session]
   );
 
   useEffect(() => {
@@ -225,14 +258,22 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (user && selectionPayload && !session && !isCreatingSession) {
+    if (user && selectionPayload && !session && !isCreatingSession && checkoutIdempotencyKey) {
       void initializeSession();
     }
-  }, [initializeSession, isAuthLoading, isCreatingSession, selectionPayload, session, user]);
+  }, [
+    checkoutIdempotencyKey,
+    initializeSession,
+    isAuthLoading,
+    isCreatingSession,
+    selectionPayload,
+    session,
+    user
+  ]);
 
   if (isLoading || isAuthLoading) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-6 py-20">
+      <main className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-4 py-16 sm:px-6 sm:py-20">
         <p className="text-sm text-slate-600">Preparing secure checkout...</p>
       </main>
     );
@@ -240,7 +281,7 @@ export default function CheckoutPage() {
 
   if (error || !event || !summary || !selectionPayload) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-6 py-20">
+      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-16 sm:px-6 sm:py-20">
         <p className="text-sm text-rose-600">{error ?? "Checkout setup failed."}</p>
         <Link
           href="/events"
@@ -254,7 +295,7 @@ export default function CheckoutPage() {
 
   if (!stripePromise) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-6 py-20">
+      <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-16 sm:px-6 sm:py-20">
         <p className="text-sm text-rose-600">
           NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is not configured.
         </p>
@@ -263,8 +304,8 @@ export default function CheckoutPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-6 py-10">
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 pb-10 sm:px-6 sm:py-10">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Checkout</h1>
         <p className="mt-2 text-sm text-slate-600">
           Confirm your selection and complete payment securely via Stripe.
@@ -298,7 +339,7 @@ export default function CheckoutPage() {
             />
           </Elements>
         ) : (
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <h2 className="text-xl font-semibold text-slate-900">Payment Setup</h2>
             {user ? (
               <div className="mt-3 space-y-3">
@@ -338,7 +379,7 @@ export default function CheckoutPage() {
                   onClick={() => {
                     void initializeSession(guestEmail.trim().toLowerCase());
                   }}
-                  disabled={isCreatingSession || !guestEmail.trim()}
+                  disabled={isCreatingSession || !guestEmail.trim() || !checkoutIdempotencyKey}
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {isCreatingSession ? "Initializing..." : "Continue to Payment"}

@@ -1,5 +1,7 @@
 import { prisma, type SeatStatus, type TicketingMode } from "@ticketing/db";
 import { z } from "zod";
+import { appCache, withCache } from "../../utils/cache";
+import { invalidateEventCaches } from "../events/event.service";
 
 const seatStatusEnum = z.enum(["AVAILABLE", "RESERVED", "SOLD", "BLOCKED"]);
 
@@ -99,6 +101,8 @@ export async function replaceSeatMap(eventId: string, input: unknown) {
     }
   });
 
+  invalidateSeatMapCaches(eventId);
+  invalidateEventCaches(eventId);
   return getAdminSeatMap(eventId);
 }
 
@@ -160,116 +164,128 @@ export async function getAdminSeatMap(eventId: string) {
 }
 
 export async function getPublicSeatMap(eventId: string) {
-  const event = await getEventOrThrow(eventId);
-  assertReservedMode(event.ticketingMode);
+  return withCache({
+    key: `seatmap:public:${eventId}`,
+    ttlMs: parseTtl("SEATMAP_CACHE_TTL_MS", 15_000),
+    resolver: async () => {
+      const event = await getEventOrThrow(eventId);
+      assertReservedMode(event.ticketingMode);
 
-  const sections = await prisma.seatSection.findMany({
-    where: {
-      eventId
-    },
-    orderBy: {
-      createdAt: "asc"
-    },
-    include: {
-      rows: {
+      const sections = await prisma.seatSection.findMany({
+        where: {
+          eventId
+        },
         orderBy: {
-          sortOrder: "asc"
+          createdAt: "asc"
         },
         include: {
-          seats: {
-            orderBy: [
-              {
-                y: "asc"
-              },
-              {
-                x: "asc"
+          rows: {
+            orderBy: {
+              sortOrder: "asc"
+            },
+            include: {
+              seats: {
+                orderBy: [
+                  {
+                    y: "asc"
+                  },
+                  {
+                    x: "asc"
+                  }
+                ]
               }
-            ]
+            }
           }
         }
-      }
+      });
+
+      return {
+        eventId: event.id,
+        ticketingMode: event.ticketingMode,
+        sections: sections.map((section) => ({
+          name: section.name,
+          color: section.color,
+          rows: section.rows.map((row) => ({
+            label: row.label,
+            sortOrder: row.sortOrder,
+            seats: row.seats.map((seat) => ({
+              id: seat.id,
+              seatNumber: seat.seatNumber,
+              label: seat.label,
+              x: seat.x,
+              y: seat.y,
+              price: Number(seat.price),
+              status: seat.status
+            }))
+          }))
+        }))
+      };
     }
   });
-
-  return {
-    eventId: event.id,
-    ticketingMode: event.ticketingMode,
-    sections: sections.map((section) => ({
-      name: section.name,
-      color: section.color,
-      rows: section.rows.map((row) => ({
-        label: row.label,
-        sortOrder: row.sortOrder,
-        seats: row.seats.map((seat) => ({
-          id: seat.id,
-          seatNumber: seat.seatNumber,
-          label: seat.label,
-          x: seat.x,
-          y: seat.y,
-          price: Number(seat.price),
-          status: seat.status
-        }))
-      }))
-    }))
-  };
 }
 
 export async function getEventAvailability(eventId: string) {
-  const event = await getEventOrThrow(eventId);
+  return withCache({
+    key: `availability:${eventId}`,
+    ttlMs: parseTtl("EVENT_AVAILABILITY_CACHE_TTL_MS", 10_000),
+    resolver: async () => {
+      const event = await getEventOrThrow(eventId);
 
-  if (event.ticketingMode === "GA") {
-    const gaCounts = await prisma.ticketTier.aggregate({
-      where: {
-        eventId
-      },
-      _sum: {
-        quantity: true
+      if (event.ticketingMode === "GA") {
+        const gaCounts = await prisma.ticketTier.aggregate({
+          where: {
+            eventId
+          },
+          _sum: {
+            quantity: true
+          }
+        });
+
+        return {
+          eventId: event.id,
+          ticketingMode: event.ticketingMode,
+          availableSeats: gaCounts._sum.quantity ?? 0,
+          soldSeats: 0,
+          reservedSeats: 0,
+          blockedSeats: 0
+        };
       }
-    });
 
-    return {
-      eventId: event.id,
-      ticketingMode: event.ticketingMode,
-      availableSeats: gaCounts._sum.quantity ?? 0,
-      soldSeats: 0,
-      reservedSeats: 0,
-      blockedSeats: 0
-    };
-  }
-
-  const groupedCounts = await prisma.seat.groupBy({
-    by: ["status"],
-    where: {
-      row: {
-        section: {
-          eventId
+      const groupedCounts = await prisma.seat.groupBy({
+        by: ["status"],
+        where: {
+          row: {
+            section: {
+              eventId
+            }
+          }
+        },
+        _count: {
+          _all: true
         }
+      });
+
+      const counts = {
+        AVAILABLE: 0,
+        RESERVED: 0,
+        SOLD: 0,
+        BLOCKED: 0
+      } satisfies Record<SeatStatus, number>;
+
+      for (const statusGroup of groupedCounts) {
+        counts[statusGroup.status] = statusGroup._count._all;
       }
-    },
-    _count: {
-      _all: true
+
+      return {
+        eventId: event.id,
+        ticketingMode: event.ticketingMode,
+        availableSeats: counts.AVAILABLE,
+        soldSeats: counts.SOLD,
+        reservedSeats: counts.RESERVED,
+        blockedSeats: counts.BLOCKED
+      };
     }
   });
-
-  const counts = {
-    AVAILABLE: 0,
-    RESERVED: 0,
-    SOLD: 0,
-    BLOCKED: 0
-  } satisfies Record<SeatStatus, number>;
-
-  for (const statusGroup of groupedCounts) {
-    counts[statusGroup.status] = statusGroup._count._all;
-  }
-
-  return {
-    eventId: event.id,
-    ticketingMode: event.ticketingMode,
-    availableSeats: counts.AVAILABLE,
-    soldSeats: counts.SOLD,
-    reservedSeats: counts.RESERVED,
-    blockedSeats: counts.BLOCKED
-  };
 }
 
 export async function validateSelection(eventId: string, input: unknown) {
@@ -430,4 +446,19 @@ async function getEventOrThrow(eventId: string): Promise<{
   }
 
   return event;
+}
+
+export function invalidateSeatMapCaches(eventId: string): void {
+  appCache.del(`seatmap:public:${eventId}`);
+  appCache.del(`availability:${eventId}`);
+}
+
+function parseTtl(variableName: string, fallbackMs: number): number {
+  const rawValue = process.env[variableName];
+  if (!rawValue) {
+    return fallbackMs;
+  }
+
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallbackMs;
 }

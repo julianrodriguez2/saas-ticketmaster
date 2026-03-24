@@ -40,7 +40,7 @@ export function SeatMap({ sections, selectedSeatIds, onToggleSeat }: SeatMapProp
   const selectedSeatIdSet = new Set(selectedSeatIds);
 
   return (
-    <div className="space-y-4 overflow-x-auto pb-2">
+    <div className="space-y-4 overflow-x-auto pb-2 overscroll-x-contain">
       {sections.map((section, sectionIndex) => (
         <section
           key={`${section.name}-${sectionIndex}`}

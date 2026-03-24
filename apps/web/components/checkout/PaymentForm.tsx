@@ -77,7 +77,7 @@ export function PaymentForm({ clientSecret, orderId, cancelRedirectPath }: Payme
   }
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <h2 className="text-xl font-semibold text-slate-900">Payment</h2>
       <p className="mt-2 text-sm text-slate-600">Secure payment powered by Stripe.</p>
 
@@ -104,7 +104,7 @@ export function PaymentForm({ clientSecret, orderId, cancelRedirectPath }: Payme
         <button
           type="submit"
           disabled={isDisabled}
-          className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+          className="min-h-11 w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isProcessing ? "Processing Payment..." : "Pay Now"}
         </button>

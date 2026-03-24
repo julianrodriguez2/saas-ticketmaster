@@ -168,7 +168,6 @@ export default function AdminEventImportsPage() {
           <code>venueName</code> (or a template with default venue).
         </p>
         <p className="mt-2 text-sm text-slate-600">
-        <p className="mt-2 text-sm text-slate-600">
           Optional: <code>description</code>, <code>templateId</code>, <code>ticketingMode</code>,{" "}
           <code>currency</code>, <code>salesStartAt</code>, <code>salesEndAt</code>,{" "}
           <code>publishStatus</code>, <code>presaleName</code>, <code>presaleStartsAt</code>,{" "}

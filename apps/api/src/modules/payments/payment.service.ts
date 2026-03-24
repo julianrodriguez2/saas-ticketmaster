@@ -5,8 +5,10 @@ import {
   sendOrderConfirmationEmailSafe,
   sendPaymentFailureEmailSafe
 } from "../email/email.service";
+import { invalidateEventCaches } from "../events/event.service";
 import { trackPaymentAttempt } from "../fraud/fraud.service";
 import { getOrderEmailAndSummary } from "../orders/order.service";
+import { invalidateSeatMapCaches } from "../seatmaps/seatmap.service";
 import { recordSystemEventSafe } from "../system-events/systemEvent.service";
 import { issueTicketsForOrder } from "../tickets/ticket.service";
 
@@ -307,7 +309,9 @@ export async function finalizeOrderPayment(
 
     const orderEmail = payment.order.email ?? payment.order.user?.email ?? null;
 
-    if (payment.status === "SUCCESS" && payment.order.status === "PAID") {
+  if (payment.status === "SUCCESS" && payment.order.status === "PAID") {
+      invalidateSeatMapCaches(payment.order.event.id);
+      invalidateEventCaches(payment.order.event.id);
       return {
         status: "PAID",
         orderId: payment.order.id,
@@ -337,6 +341,8 @@ export async function finalizeOrderPayment(
         }
       });
 
+      invalidateSeatMapCaches(payment.order.event.id);
+      invalidateEventCaches(payment.order.event.id);
       return {
         status: "PAID",
         orderId: payment.order.id,
@@ -384,6 +390,9 @@ export async function finalizeOrderPayment(
         status: "SUCCESS"
       }
     });
+
+    invalidateSeatMapCaches(payment.order.event.id);
+    invalidateEventCaches(payment.order.event.id);
 
     return {
       status: "PAID",

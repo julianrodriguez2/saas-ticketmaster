@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { AppError } from "../errors/AppError";
 import {
   AuthServiceError,
   getAuthCookieName,
@@ -19,12 +20,19 @@ declare global {
 
 export function requireAuth(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): void {
-  const authPayload = authenticateRequest(req, res);
+  const authPayload = authenticateRequest(req);
 
   if (!authPayload) {
+    next(
+      new AppError({
+        statusCode: 401,
+        message: "Authentication required.",
+        code: "AUTH_REQUIRED"
+      })
+    );
     return;
   }
 
@@ -34,17 +42,30 @@ export function requireAuth(
 
 export function requireAdmin(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): void {
-  const authPayload = authenticateRequest(req, res);
+  const authPayload = authenticateRequest(req);
 
   if (!authPayload) {
+    next(
+      new AppError({
+        statusCode: 401,
+        message: "Authentication required.",
+        code: "AUTH_REQUIRED"
+      })
+    );
     return;
   }
 
   if (authPayload.role !== "ADMIN") {
-    res.status(403).json({ message: "Admin access required." });
+    next(
+      new AppError({
+        statusCode: 403,
+        message: "Admin access required.",
+        code: "ADMIN_REQUIRED"
+      })
+    );
     return;
   }
 
@@ -62,17 +83,11 @@ export function optionalAuth(
 }
 
 function authenticateRequest(
-  req: Request,
-  res: Response
+  req: Request
 ): AuthTokenPayload | null {
   const authPayload = readAuthPayload(req);
 
-  if (!authPayload) {
-    res.status(401).json({ message: "Authentication required." });
-    return null;
-  }
-
-  return authPayload;
+  return authPayload ?? null;
 }
 
 function readAuthPayload(req: Request): AuthTokenPayload | null {

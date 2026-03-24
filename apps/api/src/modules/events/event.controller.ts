@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
 import {
-  EventServiceError,
   createEvent,
   getEventById,
   listEvents,
@@ -16,7 +15,7 @@ export async function createEventHandler(
     const event = await createEvent(req.body);
     res.status(201).json({ event });
   } catch (error) {
-    handleEventError(error, res, next);
+    next(error);
   }
 }
 
@@ -26,10 +25,15 @@ export async function listEventsHandler(
   next: NextFunction
 ): Promise<void> {
   try {
-    const events = await listEvents(req.query);
-    res.status(200).json({ events });
+    const result = await listEvents(req.query);
+    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
+    res.status(200).json({
+      data: result.data,
+      meta: result.meta,
+      events: result.data
+    });
   } catch (error) {
-    handleEventError(error, res, next);
+    next(error);
   }
 }
 
@@ -40,9 +44,10 @@ export async function listRecommendedEventsHandler(
 ): Promise<void> {
   try {
     const events = await listRecommendedEvents();
+    res.setHeader("Cache-Control", "public, max-age=20, stale-while-revalidate=40");
     res.status(200).json({ events });
   } catch (error) {
-    handleEventError(error, res, next);
+    next(error);
   }
 }
 
@@ -53,21 +58,9 @@ export async function getEventByIdHandler(
 ): Promise<void> {
   try {
     const event = await getEventById(req.params.id);
+    res.setHeader("Cache-Control", "public, max-age=20, stale-while-revalidate=40");
     res.status(200).json({ event });
   } catch (error) {
-    handleEventError(error, res, next);
+    next(error);
   }
-}
-
-function handleEventError(
-  error: unknown,
-  res: Response,
-  next: NextFunction
-): void {
-  if (error instanceof EventServiceError) {
-    res.status(error.statusCode).json({ message: error.message });
-    return;
-  }
-
-  next(error);
 }

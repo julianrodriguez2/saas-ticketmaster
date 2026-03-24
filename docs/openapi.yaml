@@ -1,0 +1,245 @@
+openapi: 3.1.0
+info:
+  title: Ticketing Platform API
+  version: 1.0.0
+  description: >
+    Starter OpenAPI spec for public, checkout, and admin operations.
+    Base path is `/api/v1`.
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local development
+tags:
+  - name: Auth
+  - name: Events
+  - name: Checkout
+  - name: Orders
+  - name: Tickets
+  - name: Admin Analytics
+  - name: Admin Imports
+  - name: Admin Templates
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        "201":
+          description: Registered
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and set auth cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Logged in
+  /events:
+    get:
+      tags: [Events]
+      summary: List public events
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [date, title, createdAt]
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Paginated event list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+  /events/{eventId}:
+    get:
+      tags: [Events]
+      summary: Get event details
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event detail
+  /checkout/create-session:
+    post:
+      tags: [Checkout]
+      summary: Initialize Stripe checkout session
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [eventId, seatIds]
+                  properties:
+                    eventId: { type: string }
+                    seatIds:
+                      type: array
+                      items: { type: string }
+                    email: { type: string, format: email }
+                    presaleCode: { type: string }
+                - type: object
+                  required: [eventId, ticketTierId, quantity]
+                  properties:
+                    eventId: { type: string }
+                    ticketTierId: { type: string }
+                    quantity: { type: integer }
+                    email: { type: string, format: email }
+                    presaleCode: { type: string }
+      responses:
+        "201":
+          description: Session created
+  /orders:
+    get:
+      tags: [Orders]
+      summary: List current user orders
+      responses:
+        "200":
+          description: Orders list
+  /tickets/{id}:
+    get:
+      tags: [Tickets]
+      summary: Get ticket detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ticket detail
+  /admin/analytics/overview:
+    get:
+      tags: [Admin Analytics]
+      summary: Platform KPI overview
+      responses:
+        "200":
+          description: Analytics KPIs
+  /admin/orders:
+    get:
+      tags: [Admin Analytics]
+      summary: Paginated admin order list
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer }
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [createdAt, totalAmount, flaggedAt]
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Paginated order data
+  /admin/event-templates:
+    get:
+      tags: [Admin Templates]
+      summary: List event templates
+      responses:
+        "200":
+          description: Template list
+  /admin/imports/events/validate:
+    post:
+      tags: [Admin Imports]
+      summary: Validate event CSV import
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Validation result with row-level errors
+components:
+  schemas:
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer

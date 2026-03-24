@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { EventCard } from "../../components/events/EventCard";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { useAuth } from "../../lib/auth-context";
 import {
-  getEvents,
+  getEventsPage,
   getRecommendedEvents,
   type EventSummary
 } from "../../lib/events-api";
@@ -52,10 +53,16 @@ export default function HomePage() {
       setIsEventsLoading(true);
 
       try {
-        const nextEvents = await getEvents({ search });
+        const response = await getEventsPage({
+          search,
+          page: 1,
+          limit: 6,
+          sortBy: "date",
+          sortOrder: "asc"
+        });
 
         if (!isCancelled) {
-          setEvents(nextEvents);
+          setEvents(response.data);
         }
       } catch (error) {
         if (!isCancelled) {
@@ -92,8 +99,8 @@ export default function HomePage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-6 py-8">
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:gap-8 sm:px-6 sm:py-8">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <Link href="/" className="text-lg font-semibold tracking-tight text-slate-900">
           Ticketing Platform
         </Link>
@@ -150,11 +157,11 @@ export default function HomePage() {
         </section>
       ) : null}
 
-      <section className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-8 text-white shadow-sm">
+      <section className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-6 text-white shadow-sm sm:p-8">
         <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-300">
           Live Experiences
         </p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-5xl">
           Discover Live Events
         </h1>
         <p className="mt-4 max-w-2xl text-sm text-slate-200 sm:text-base">
@@ -192,7 +199,20 @@ export default function HomePage() {
             <p className="text-sm text-rose-600">{eventsError}</p>
           </div>
         ) : isEventsLoading ? (
-          <p className="text-sm text-slate-600">Loading events...</p>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <article
+                key={`home-events-skeleton-${index}`}
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="mt-3 h-6 w-3/4" />
+                <Skeleton className="mt-2 h-4 w-1/2" />
+                <Skeleton className="mt-6 h-4 w-28" />
+                <Skeleton className="mt-5 h-9 w-28 rounded-lg" />
+              </article>
+            ))}
+          </div>
         ) : events.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <p className="text-sm text-slate-600">No events found for that search.</p>
@@ -215,7 +235,20 @@ export default function HomePage() {
             <p className="text-sm text-rose-600">{recommendedError}</p>
           </div>
         ) : isRecommendedLoading ? (
-          <p className="mt-4 text-sm text-slate-600">Loading recommendations...</p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <article
+                key={`home-recommended-skeleton-${index}`}
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="mt-3 h-6 w-3/4" />
+                <Skeleton className="mt-2 h-4 w-1/2" />
+                <Skeleton className="mt-6 h-4 w-28" />
+                <Skeleton className="mt-5 h-9 w-28 rounded-lg" />
+              </article>
+            ))}
+          </div>
         ) : recommendedEvents.length === 0 ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
             <p className="text-sm text-slate-600">No upcoming events available.</p>

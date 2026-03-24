@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
+import { AppError } from "../../errors/AppError";
 import {
-  AuthServiceError,
   getAuthCookieName,
   getAuthCookieOptions,
   getAuthenticatedUser,
@@ -18,7 +18,7 @@ export async function register(
     const user = await registerUser(req.body);
     res.status(201).json({ success: true, user });
   } catch (error) {
-    handleAuthError(error, res, next);
+    next(error);
   }
 }
 
@@ -33,7 +33,7 @@ export async function login(
     res.cookie(getAuthCookieName(), token, getAuthCookieOptions());
     res.status(200).json({ user });
   } catch (error) {
-    handleAuthError(error, res, next);
+    next(error);
   }
 }
 
@@ -48,7 +48,13 @@ export async function me(
   next: NextFunction
 ): Promise<void> {
   if (!req.user) {
-    res.status(401).json({ message: "Authentication required." });
+    next(
+      new AppError({
+        statusCode: 401,
+        message: "Authentication required.",
+        code: "AUTH_REQUIRED"
+      })
+    );
     return;
   }
 
@@ -56,19 +62,6 @@ export async function me(
     const user = await getAuthenticatedUser(req.user.userId);
     res.status(200).json({ user });
   } catch (error) {
-    handleAuthError(error, res, next);
+    next(error);
   }
-}
-
-function handleAuthError(
-  error: unknown,
-  res: Response,
-  next: NextFunction
-): void {
-  if (error instanceof AuthServiceError) {
-    res.status(error.statusCode).json({ message: error.message });
-    return;
-  }
-
-  next(error);
 }

@@ -1,5 +1,6 @@
 import { prisma, type PresaleAccessType } from "@ticketing/db";
 import { z } from "zod";
+import { invalidateEventCaches } from "../events/event.service";
 
 const presaleAccessTypeSchema = z.enum(["PUBLIC", "CODE", "LINK_ONLY"]);
 
@@ -59,7 +60,7 @@ export async function createPresaleRule(eventId: string, input: unknown) {
 
   const payload = parsedPayload.data;
 
-  return prisma.presaleRule.create({
+  const presale = await prisma.presaleRule.create({
     data: {
       eventId,
       name: payload.name,
@@ -70,6 +71,9 @@ export async function createPresaleRule(eventId: string, input: unknown) {
       isActive: payload.isActive
     }
   });
+
+  invalidateEventCaches(eventId);
+  return presale;
 }
 
 export async function listPresaleRules(eventId: string) {
@@ -105,7 +109,8 @@ export async function updatePresaleRule(presaleId: string, input: unknown) {
       id: presaleId
     },
     select: {
-      id: true
+      id: true,
+      eventId: true
     }
   });
 
@@ -115,7 +120,7 @@ export async function updatePresaleRule(presaleId: string, input: unknown) {
 
   const payload = parsedPayload.data;
 
-  return prisma.presaleRule.update({
+  const presale = await prisma.presaleRule.update({
     where: {
       id: presaleId
     },
@@ -128,6 +133,9 @@ export async function updatePresaleRule(presaleId: string, input: unknown) {
       isActive: payload.isActive
     }
   });
+
+  invalidateEventCaches(existingRule.eventId);
+  return presale;
 }
 
 export async function deletePresaleRule(presaleId: string): Promise<void> {
@@ -136,7 +144,8 @@ export async function deletePresaleRule(presaleId: string): Promise<void> {
       id: presaleId
     },
     select: {
-      id: true
+      id: true,
+      eventId: true
     }
   });
 
@@ -149,6 +158,8 @@ export async function deletePresaleRule(presaleId: string): Promise<void> {
       id: presaleId
     }
   });
+
+  invalidateEventCaches(existingRule.eventId);
 }
 
 export async function validatePresaleAccess(

@@ -1,4 +1,4 @@
-import { apiRequest } from "./api";
+import { apiRequest, type ApiPaginationMeta, type PaginatedApiResponse } from "./api";
 
 export type TicketingMode = "GA" | "RESERVED";
 export type SeatStatus = "AVAILABLE" | "RESERVED" | "SOLD" | "BLOCKED";
@@ -126,10 +126,22 @@ export type PresaleValidation = {
 
 type GetEventsQuery = {
   search?: string;
+  venue?: string;
   date?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: "date" | "title" | "createdAt";
+  sortOrder?: "asc" | "desc";
 };
 
 export async function getEvents(query: GetEventsQuery = {}): Promise<EventSummary[]> {
+  const paginatedResponse = await getEventsPage(query);
+  return paginatedResponse.data;
+}
+
+export async function getEventsPage(
+  query: GetEventsQuery = {}
+): Promise<PaginatedApiResponse<EventSummary>> {
   const params = new URLSearchParams();
 
   if (query.search && query.search.trim()) {
@@ -140,10 +152,45 @@ export async function getEvents(query: GetEventsQuery = {}): Promise<EventSummar
     params.set("date", query.date.trim());
   }
 
-  const path = params.toString() ? `/events?${params.toString()}` : "/events";
-  const response = await apiRequest<{ events: EventSummary[] }>(path);
+  if (query.venue && query.venue.trim()) {
+    params.set("venue", query.venue.trim());
+  }
 
-  return response.events;
+  if (query.page && query.page > 0) {
+    params.set("page", String(query.page));
+  }
+
+  if (query.limit && query.limit > 0) {
+    params.set("limit", String(query.limit));
+  }
+
+  if (query.sortBy) {
+    params.set("sortBy", query.sortBy);
+  }
+
+  if (query.sortOrder) {
+    params.set("sortOrder", query.sortOrder);
+  }
+
+  const path = params.toString() ? `/events?${params.toString()}` : "/events";
+  const response = await apiRequest<
+    | { data: EventSummary[]; meta: ApiPaginationMeta }
+    | { events: EventSummary[] }
+  >(path);
+
+  if ("data" in response && "meta" in response) {
+    return response;
+  }
+
+  return {
+    data: response.events,
+    meta: {
+      page: query.page ?? 1,
+      limit: query.limit ?? response.events.length,
+      total: response.events.length,
+      totalPages: 1
+    }
+  };
 }
 
 export async function getRecommendedEvents(): Promise<EventSummary[]> {

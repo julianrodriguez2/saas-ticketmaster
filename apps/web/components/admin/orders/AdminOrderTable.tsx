@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { AdminOrderListResponse } from "../../../lib/admin-api";
+import { Skeleton } from "../../ui/Skeleton";
 
 type AdminOrderTableProps = {
   data: AdminOrderListResponse;
@@ -31,37 +32,49 @@ export function AdminOrderTable({
         </p>
       </div>
 
-      {orders.length === 0 ? (
+      {isLoading && orders.length === 0 ? (
+        <div className="mt-4 space-y-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div
+              key={`admin-order-skeleton-${index}`}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+            >
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="mt-2 h-4 w-2/3" />
+            </div>
+          ))}
+        </div>
+      ) : orders.length === 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
           <p className="text-sm text-slate-600">No matching orders found.</p>
         </div>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 max-h-[560px] overflow-auto rounded-xl border border-slate-200">
           <table className="min-w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-10 bg-white text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="pb-2 pr-4">Order</th>
-                <th className="pb-2 pr-4">Customer</th>
-                <th className="pb-2 pr-4">Event</th>
-                <th className="pb-2 pr-4">Total</th>
-                <th className="pb-2 pr-4">Status</th>
-                <th className="pb-2 pr-4">Risk</th>
-                <th className="pb-2 pr-4">Created</th>
-                <th className="pb-2 pr-4">Tickets</th>
-                <th className="pb-2 pr-4">Action</th>
+                <th className="border-b border-slate-200 px-3 py-3">Order</th>
+                <th className="border-b border-slate-200 px-3 py-3">Customer</th>
+                <th className="border-b border-slate-200 px-3 py-3">Event</th>
+                <th className="border-b border-slate-200 px-3 py-3">Total</th>
+                <th className="border-b border-slate-200 px-3 py-3">Status</th>
+                <th className="border-b border-slate-200 px-3 py-3">Risk</th>
+                <th className="border-b border-slate-200 px-3 py-3">Created</th>
+                <th className="border-b border-slate-200 px-3 py-3">Tickets</th>
+                <th className="border-b border-slate-200 px-3 py-3">Action</th>
               </tr>
             </thead>
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id} className="border-t border-slate-200">
-                  <td className="py-3 pr-4 font-medium text-slate-900">{order.id}</td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 font-medium text-slate-900">{order.id}</td>
+                  <td className="px-3 py-3 text-slate-700">
                     {order.customerEmail ?? "Guest checkout"}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">{order.event.title}</td>
-                  <td className="py-3 pr-4 text-slate-700">${order.totalAmount.toFixed(2)}</td>
-                  <td className="py-3 pr-4 text-slate-700">{order.status}</td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 text-slate-700">{order.event.title}</td>
+                  <td className="px-3 py-3 text-slate-700">${order.totalAmount.toFixed(2)}</td>
+                  <td className="px-3 py-3 text-slate-700">{order.status}</td>
+                  <td className="px-3 py-3 text-slate-700">
                     <div className="flex flex-col gap-1">
                       <span
                         className={`inline-flex w-fit rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
@@ -82,11 +95,11 @@ export function AdminOrderTable({
                       ) : null}
                     </div>
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">
+                  <td className="px-3 py-3 text-slate-700">
                     {new Date(order.createdAt).toLocaleString()}
                   </td>
-                  <td className="py-3 pr-4 text-slate-700">{order.ticketCount}</td>
-                  <td className="py-3 pr-4">
+                  <td className="px-3 py-3 text-slate-700">{order.ticketCount}</td>
+                  <td className="px-3 py-3">
                     <Link
                       href={`/admin/orders/${order.id}`}
                       className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"

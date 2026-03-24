@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { OrderSummary } from "../../../components/orders/OrderSummary";
+import { Skeleton } from "../../../components/ui/Skeleton";
 import { getOrderById, type OrderDetail } from "../../../lib/checkout-api";
 import { useAuth } from "../../../lib/auth-context";
 
@@ -65,8 +66,16 @@ export default function OrderDetailPage() {
 
   if (isAuthLoading || isLoading) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-20">
-        <p className="text-sm text-slate-600">Loading order details...</p>
+      <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="mt-3 h-4 w-80" />
+        </section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Skeleton className="h-6 w-28" />
+          <Skeleton className="mt-4 h-20 w-full" />
+          <Skeleton className="mt-3 h-20 w-full" />
+        </section>
       </main>
     );
   }
@@ -90,7 +99,7 @@ export default function OrderDetailPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-6 py-10">
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-10">
       <OrderSummary order={order} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

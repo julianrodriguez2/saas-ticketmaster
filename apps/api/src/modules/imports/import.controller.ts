@@ -31,7 +31,7 @@ export async function validateEventImportHandler(
 
     res.status(200).json(result);
   } catch (error) {
-    handleImportError(error, res, next);
+    next(error);
   }
 }
 
@@ -44,7 +44,7 @@ export async function commitEventImportHandler(
     const result = await commitEventsImport(req.body);
     res.status(200).json(result);
   } catch (error) {
-    handleImportError(error, res, next);
+    next(error);
   }
 }
 
@@ -55,9 +55,14 @@ export async function listImportJobsHandler(
 ): Promise<void> {
   try {
     const result = await listImportJobs(req.query);
-    res.status(200).json(result);
+    res.status(200).json({
+      data: result.jobs,
+      meta: result.pagination,
+      jobs: result.jobs,
+      pagination: result.pagination
+    });
   } catch (error) {
-    handleImportError(error, res, next);
+    next(error);
   }
 }
 
@@ -70,19 +75,6 @@ export async function getImportJobByIdHandler(
     const job = await getImportJobById(req.params.id);
     res.status(200).json({ job });
   } catch (error) {
-    handleImportError(error, res, next);
+    next(error);
   }
-}
-
-function handleImportError(
-  error: unknown,
-  res: Response,
-  next: NextFunction
-): void {
-  if (error instanceof ImportServiceError) {
-    res.status(error.statusCode).json({ message: error.message });
-    return;
-  }
-
-  next(error);
 }

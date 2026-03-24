@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { NotificationList } from "../../../components/admin/notifications/NotificationList";
+import type { ApiPaginationMeta } from "../../../lib/api";
 import {
   getAdminNotifications,
   markAdminNotificationRead,
@@ -21,6 +22,13 @@ export default function AdminNotificationsPage() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [severity, setSeverity] = useState<NotificationSeverity | "">("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<ApiPaginationMeta>({
+    page: 1,
+    limit: 25,
+    total: 0,
+    totalPages: 0
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [pendingNotificationId, setPendingNotificationId] = useState<string | null>(null);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
@@ -37,9 +45,13 @@ export default function AdminNotificationsPage() {
         unreadOnly,
         severity: severity || undefined,
         type: typeFilter.trim() || undefined,
-        limit: 100
+        page,
+        limit: 25
       });
       setNotifications(response.notifications);
+      if (response.pagination) {
+        setPagination(response.pagination);
+      }
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "Unable to load notifications."
@@ -48,6 +60,10 @@ export default function AdminNotificationsPage() {
     } finally {
       setIsLoading(false);
     }
+  }, [page, severity, typeFilter, unreadOnly]);
+
+  useEffect(() => {
+    setPage(1);
   }, [severity, typeFilter, unreadOnly]);
 
   useEffect(() => {
@@ -234,6 +250,29 @@ export default function AdminNotificationsPage() {
         pendingNotificationId={pendingNotificationId}
         onMarkRead={handleMarkRead}
       />
+
+      <section className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+          disabled={isLoading || page <= 1}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Previous
+        </button>
+        <p className="text-xs text-slate-600">
+          Page {pagination.page}
+          {pagination.totalPages > 0 ? ` of ${pagination.totalPages}` : ""}
+        </p>
+        <button
+          type="button"
+          onClick={() => setPage((currentPage) => currentPage + 1)}
+          disabled={isLoading || pagination.totalPages === 0 || page >= pagination.totalPages}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Next
+        </button>
+      </section>
     </main>
   );
 }

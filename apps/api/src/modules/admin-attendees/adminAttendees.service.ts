@@ -1,12 +1,14 @@
 import { prisma, type Prisma } from "@ticketing/db";
 import { z } from "zod";
+import { buildPaginationMeta, toSkipTake } from "../../utils/pagination";
+import { parsePaginationQuery } from "../../utils/queryParsers";
 
 const attendeeQuerySchema = z.object({
   search: z.string().trim().min(1).max(120).optional(),
-  status: z.enum(["ACTIVE", "USED", "CANCELLED"]).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(200).default(50)
+  status: z.enum(["ACTIVE", "USED", "CANCELLED"]).optional()
 });
+
+const attendeeSortColumns = ["issuedAt", "status", "checkInStatus"] as const;
 
 export class AdminAttendeesServiceError extends Error {
   public readonly statusCode: number;
@@ -54,9 +56,10 @@ export async function listEventAttendees(
     totalPages: number;
   };
 }> {
-  const { filters, page, limit } = parseAttendeeQuery(query);
+  const { filters, page, limit, sortBy, sortOrder } = parseAttendeeQuery(query);
   const event = await getEventOrThrow(eventId);
   const where = buildAttendeeWhere(eventId, filters);
+  const { skip, take } = toSkipTake({ page, limit });
 
   const [total, tickets] = await prisma.$transaction([
     prisma.ticket.count({
@@ -64,11 +67,9 @@ export async function listEventAttendees(
     }),
     prisma.ticket.findMany({
       where,
-      orderBy: {
-        issuedAt: "desc"
-      },
-      skip: (page - 1) * limit,
-      take: limit,
+      orderBy: buildAttendeeSort(sortBy, sortOrder),
+      skip,
+      take,
       select: {
         id: true,
         attendeeName: true,
@@ -138,12 +139,11 @@ export async function listEventAttendees(
       orderStatus: ticket.order.status,
       purchaseDate: ticket.order.createdAt
     })),
-    pagination: {
+    pagination: buildPaginationMeta({
       page,
       limit,
-      total,
-      totalPages: total === 0 ? 0 : Math.ceil(total / limit)
-    }
+      total
+    })
   };
 }
 
@@ -299,6 +299,8 @@ function parseAttendeeQuery(query: unknown): {
   };
   page: number;
   limit: number;
+  sortBy?: string;
+  sortOrder: "asc" | "desc";
 } {
   const parsedQuery = attendeeQuerySchema.safeParse(query);
 
@@ -309,15 +311,25 @@ function parseAttendeeQuery(query: unknown): {
     );
   }
 
-  const { search, status, page, limit } = parsedQuery.data;
+  const pagination = parsePaginationQuery(query, {
+    defaultLimit: 50,
+    maxLimit: 200,
+    defaultSortBy: "issuedAt",
+    defaultSortOrder: "desc",
+    allowedSortBy: [...attendeeSortColumns]
+  });
+
+  const { search, status } = parsedQuery.data;
 
   return {
     filters: {
       search,
       status
     },
-    page,
-    limit
+    page: pagination.page,
+    limit: pagination.limit,
+    sortBy: pagination.sortBy,
+    sortOrder: pagination.sortOrder
   };
 }
 
@@ -354,4 +366,17 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "");
+}
+
+function buildAttendeeSort(
+  sortBy: string | undefined,
+  sortOrder: "asc" | "desc"
+): Prisma.TicketOrderByWithRelationInput {
+  if (!sortBy || !attendeeSortColumns.includes(sortBy as (typeof attendeeSortColumns)[number])) {
+    return { issuedAt: "desc" };
+  }
+
+  return {
+    [sortBy]: sortOrder
+  } as Prisma.TicketOrderByWithRelationInput;
 }

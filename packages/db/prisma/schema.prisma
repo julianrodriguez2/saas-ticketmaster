@@ -130,6 +130,10 @@ model Event {
   tickets       Ticket[]
   paymentAttempts PaymentAttempt[]
   notifications AdminNotification[]
+
+  @@index([date])
+  @@index([publishStatus])
+  @@index([venueId, date])
 }
 
 model TicketTier {
@@ -176,6 +180,7 @@ model Seat {
   tickets    Ticket[]
 
   @@unique([rowId, seatNumber])
+  @@index([status])
 }
 
 model Order {
@@ -190,6 +195,7 @@ model Order {
   flaggedAt        DateTime?
   ipAddress        String?
   userAgent        String?
+  checkoutIdempotencyKey String? @unique
   reviewedAt       DateTime?
   reviewedByUserId String?
   reviewNotes      String?
@@ -204,6 +210,8 @@ model Order {
 
   @@index([eventId])
   @@index([userId])
+  @@index([status])
+  @@index([createdAt])
   @@index([riskLevel])
   @@index([flaggedAt])
   @@index([reviewedAt])
@@ -237,6 +245,9 @@ model Payment {
   failureReason   String?
   createdAt       DateTime        @default(now())
   order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Ticket {

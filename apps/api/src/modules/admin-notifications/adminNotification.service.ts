@@ -1,14 +1,15 @@
-import { prisma, type NotificationSeverity } from "@ticketing/db";
+import { prisma, type NotificationSeverity, type Prisma } from "@ticketing/db";
 import { z } from "zod";
+import { buildPaginationMeta, toSkipTake } from "../../utils/pagination";
+import { parsePaginationQuery, parseOptionalBoolean } from "../../utils/queryParsers";
 
 const listNotificationsQuerySchema = z.object({
-  unreadOnly: z
-    .union([z.literal("true"), z.literal("false"), z.boolean()])
-    .optional(),
+  unreadOnly: z.union([z.literal("true"), z.literal("false"), z.boolean()]).optional(),
   severity: z.enum(["INFO", "WARNING", "CRITICAL"]).optional(),
-  type: z.string().trim().min(1).max(100).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50)
+  type: z.string().trim().min(1).max(100).optional()
 });
+
+const notificationSortColumns = ["createdAt", "readAt", "severity"] as const;
 
 export class AdminNotificationServiceError extends Error {
   public readonly statusCode: number;
@@ -97,6 +98,12 @@ export async function listAdminNotifications(query: unknown): Promise<{
     readAt: Date | null;
     createdAt: Date;
   }>;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }> {
   const parsedQuery = listNotificationsQuerySchema.safeParse(query);
 
@@ -107,35 +114,53 @@ export async function listAdminNotifications(query: unknown): Promise<{
     );
   }
 
-  const unreadOnly =
-    parsedQuery.data.unreadOnly === true || parsedQuery.data.unreadOnly === "true";
-
-  const notifications = await prisma.adminNotification.findMany({
-    where: {
-      ...(unreadOnly ? { readAt: null } : {}),
-      ...(parsedQuery.data.severity ? { severity: parsedQuery.data.severity } : {}),
-      ...(parsedQuery.data.type ? { type: parsedQuery.data.type } : {})
-    },
-    orderBy: {
-      createdAt: "desc"
-    },
-    take: parsedQuery.data.limit,
-    select: {
-      id: true,
-      type: true,
-      severity: true,
-      title: true,
-      message: true,
-      relatedOrderId: true,
-      relatedEventId: true,
-      relatedTicketId: true,
-      readAt: true,
-      createdAt: true
-    }
+  const pagination = parsePaginationQuery(query, {
+    defaultLimit: 25,
+    maxLimit: 200,
+    defaultSortBy: "createdAt",
+    defaultSortOrder: "desc",
+    allowedSortBy: [...notificationSortColumns]
   });
+  const unreadOnly = parseOptionalBoolean(parsedQuery.data.unreadOnly);
+  const where = {
+    ...(unreadOnly ? { readAt: null } : {}),
+    ...(parsedQuery.data.severity ? { severity: parsedQuery.data.severity } : {}),
+    ...(parsedQuery.data.type ? { type: parsedQuery.data.type } : {})
+  };
+  const { page, limit, sortBy, sortOrder } = pagination;
+  const { skip, take } = toSkipTake({ page, limit });
+
+  const [total, notifications] = await prisma.$transaction([
+    prisma.adminNotification.count({
+      where
+    }),
+    prisma.adminNotification.findMany({
+      where,
+      orderBy: buildNotificationSort(sortBy, sortOrder),
+      skip,
+      take,
+      select: {
+        id: true,
+        type: true,
+        severity: true,
+        title: true,
+        message: true,
+        relatedOrderId: true,
+        relatedEventId: true,
+        relatedTicketId: true,
+        readAt: true,
+        createdAt: true
+      }
+    })
+  ]);
 
   return {
-    notifications
+    notifications,
+    pagination: buildPaginationMeta({
+      page,
+      limit,
+      total
+    })
   };
 }
 
@@ -195,4 +220,18 @@ export async function getUnreadNotificationCount(): Promise<number> {
       readAt: null
     }
   });
+}
+
+function buildNotificationSort(
+  sortBy: string | undefined,
+  sortOrder: "asc" | "desc"
+): Prisma.AdminNotificationOrderByWithRelationInput[] {
+  if (
+    !sortBy ||
+    !notificationSortColumns.includes(sortBy as (typeof notificationSortColumns)[number])
+  ) {
+    return [{ createdAt: "desc" }];
+  }
+
+  return [{ [sortBy]: sortOrder } as Prisma.AdminNotificationOrderByWithRelationInput];
 }
